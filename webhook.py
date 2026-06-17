@@ -105,13 +105,15 @@ async def webhook(request: Request):
     except:
         return Response("ok")
 
+    # 只处理 @ 机器人的消息，忽略普通群消息
+    mentions = event.get("message", {}).get("mentions", [])
+    if not mentions:
+        return Response("ok")
+
     if not text:
         return Response("ok")
 
     token = get_token()
-
-    # 发"处理中"提示
-    send_message(chat_id, "text", {"text": "⚙️ 正在解析并生成图片，请稍候..."}, token)
 
     try:
         # 解析文本
