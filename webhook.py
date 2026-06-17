@@ -15,7 +15,9 @@ app = FastAPI()
 
 APP_ID     = os.environ.get("FEISHU_APP_ID",     "cli_aab8fe3742bcdcd6")
 APP_SECRET = os.environ.get("FEISHU_APP_SECRET",  "O2MMQJbSlw5MJfmcPXmq8b3yxFurGXem")
-VERIFY_TOKEN = os.environ.get("FEISHU_VERIFY_TOKEN", "")
+
+# 已处理的消息ID（内存去重，避免重复处理）
+_processed = set()
 
 # ── 获取飞书 access token ─────────────────────────────
 def get_token():
@@ -65,6 +67,14 @@ async def webhook(request: Request):
 
     msg     = event.get("message", {})
     chat_id = msg.get("chat_id", "")
+    msg_id  = msg.get("message_id", "")
+
+    # 去重：同一条消息只处理一次
+    if msg_id in _processed:
+        return Response("ok")
+    _processed.add(msg_id)
+    if len(_processed) > 1000:   # 防止内存无限增长
+        _processed.clear()
 
     # 过滤机器人自己发的消息
     sender = event.get("sender", {})
