@@ -66,6 +66,11 @@ async def webhook(request: Request):
     msg     = event.get("message", {})
     chat_id = msg.get("chat_id", "")
 
+    # 过滤机器人自己发的消息
+    sender = event.get("sender", {})
+    if sender.get("sender_type") == "app":
+        return Response("ok")
+
     # 只处理文字消息
     if msg.get("message_type") != "text":
         return Response("ok")
