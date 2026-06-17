@@ -16,8 +16,22 @@ app = FastAPI()
 APP_ID     = os.environ.get("FEISHU_APP_ID",     "cli_aab8fe3742bcdcd6")
 APP_SECRET = os.environ.get("FEISHU_APP_SECRET",  "O2MMQJbSlw5MJfmcPXmq8b3yxFurGXem")
 
-# 已处理的消息ID（内存去重，避免重复处理）
-_processed = set()
+# 已处理的消息ID（文件锁去重，跨进程有效）
+_LOCK_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output", ".locks")
+
+def _is_processed(msg_id: str) -> bool:
+    """检查消息是否已处理，未处理则标记并返回 False"""
+    os.makedirs(_LOCK_DIR, exist_ok=True)
+    lock_file = os.path.join(_LOCK_DIR, f"{msg_id}.lock")
+    if os.path.exists(lock_file):
+        return True
+    # 原子创建锁文件
+    try:
+        fd = os.open(lock_file, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        os.close(fd)
+        return False
+    except FileExistsError:
+        return True
 
 # ── 获取飞书 access token ─────────────────────────────
 def get_token():
@@ -69,12 +83,9 @@ async def webhook(request: Request):
     chat_id = msg.get("chat_id", "")
     msg_id  = msg.get("message_id", "")
 
-    # 去重：同一条消息只处理一次
-    if msg_id in _processed:
+    # 去重：同一条消息只处理一次（跨进程文件锁）
+    if _is_processed(msg_id):
         return Response("ok")
-    _processed.add(msg_id)
-    if len(_processed) > 1000:   # 防止内存无限增长
-        _processed.clear()
 
     # 过滤机器人自己发的消息
     sender = event.get("sender", {})
