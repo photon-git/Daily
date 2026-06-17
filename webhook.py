@@ -33,10 +33,12 @@ def upload_image(img_path: str, token: str) -> str:
             "https://open.feishu.cn/open-apis/im/v1/images",
             headers={"Authorization": f"Bearer {token}"},
             data={"image_type": "message"},
-            files={"image": f},
+            files={"image": ("image.png", f, "image/png")},
             timeout=30
         )
-    return r.json().get("data", {}).get("image_key", "")
+    result = r.json()
+    print(f"[upload_image] status={r.status_code} response={result}")
+    return result.get("data", {}).get("image_key", "")
 
 # ── 发送消息 ──────────────────────────────────────────
 def send_message(chat_id: str, msg_type: str, content: dict, token: str):
@@ -97,6 +99,7 @@ async def webhook(request: Request):
 
         # 上传并发送图片
         image_key = upload_image(out_path, token)
+        print(f"[webhook] image_key={image_key}")
         if image_key:
             send_message(chat_id, "image", {"image_key": image_key}, token)
         else:
