@@ -95,6 +95,48 @@ def _fit_font_size(text, max_w, base_size=36, min_size=16):
     return fs
 
 
+# ── Pillow 文字渲染（模块级，预测表和复盘表共用）────────
+from PIL import Image as PILImage, ImageDraw as PILDraw, ImageFont as PILFont
+
+def _pil_text_img(text, cell_w, cell_h, font_size, color, bg):
+    """用 Pillow 把文字渲染到指定尺寸图片，自动换行，绝对不溢出"""
+    PAD  = 24
+    img  = PILImage.new("RGBA", (int(cell_w), int(cell_h)), (0,0,0,0))
+    draw = PILDraw.Draw(img)
+    r,g,b = tuple(int(bg.lstrip('#')[i:i+2],16) for i in (0,2,4))
+    img.paste((r,g,b,255), [0,0,int(cell_w),int(cell_h)])
+
+    pil_fp = None
+    for p in [FONT_BOLD, FONT_SHS_B, FONT_PATH, FONT_SHS_R, FONT_FB]:
+        if os.path.exists(p):
+            try: pil_fp = PILFont.truetype(p, font_size); break
+            except: pass
+    if pil_fp is None:
+        pil_fp = PILFont.load_default()
+
+    words = list(text)
+    lines, cur = [], ""
+    for ch in words:
+        test = cur + ch
+        bb   = draw.textbbox((0,0), test, font=pil_fp)
+        if bb[2] > cell_w - PAD*2 and cur:
+            lines.append(cur); cur = ch
+        else:
+            cur = test
+    if cur: lines.append(cur)
+
+    line_h  = font_size + 8
+    total_h = len(lines) * line_h
+    ty      = int((cell_h - total_h) / 2)
+    cr,cg,cb = tuple(int(color.lstrip('#')[i:i+2],16) for i in (0,2,4))
+    for line in lines:
+        bb  = draw.textbbox((0,0), line, font=pil_fp)
+        tx  = int((cell_w - (bb[2]-bb[0])) / 2)  # 水平居中
+        draw.text((tx, ty), line, font=pil_fp, fill=(cr,cg,cb,255))
+        ty += line_h
+    return np.array(img) / 255.0
+
+
 def render_daily_png(data: dict, output_path: str = None) -> str:
     DPI   = 100
     PX_W  = 1920
@@ -211,17 +253,31 @@ def render_daily_png(data: dict, output_path: str = None) -> str:
                 ha='center', va='center', fontproperties=f_th, color=WHITE, zorder=5)
 
         for i, row in enumerate(rows):
-            y0 = y_start + TBL_HDR + i * ROW_H
+            y0  = y_start + TBL_HDR + i * ROW_H
+            val = row.get("value", "/")
+            is_last_row = (i == len(rows) - 1)
+
             C(ax.add_patch(mpatches.Rectangle((TBL_X,        y0), COL1_W, ROW_H,
                            facecolor="#BCDFE5", edgecolor="#437A83", lw=0.8, zorder=2)))
             C(ax.add_patch(mpatches.Rectangle((TBL_X+COL1_W, y0), COL2_W, ROW_H,
                            facecolor="#EEFDFC", edgecolor="#437A83", lw=0.8, zorder=2)))
             ax.text(TBL_X+COL1_W/2, y0+ROW_H/2, row["label"],
                     ha='center', va='center', fontproperties=f_td, color=DARK, zorder=3)
-            val = row.get("value", "/")
-            ax.text(TBL_X+COL1_W+COL2_W/2, y0+ROW_H/2, val,
-                    ha='center', va='center', fontproperties=f_val,
-                    color="#437A83" if val=="/" else "#437A83", zorder=3)
+
+            if is_last_row and val != "/":
+                # 预警信息有内容时用 Pillow 渲染，自动换行，居中
+                img_arr = _pil_text_img(val, COL2_W, ROW_H, 46, "#437A83", "#EEFDFC")
+                im = ax.imshow(img_arr,
+                               extent=[TBL_X+COL1_W, TBL_X+COL1_W+COL2_W, y0+ROW_H, y0],
+                               aspect='auto', zorder=3)
+                im.set_clip_path(clip); im.set_clip_on(True)
+                # 边框补在 imshow 上层
+                C(ax.add_patch(mpatches.Rectangle((TBL_X+COL1_W, y0), COL2_W, ROW_H,
+                               facecolor='none', edgecolor="#437A83", lw=0.8, zorder=5)))
+            else:
+                fc = "#aaaaaa" if val == "/" else "#437A83"
+                ax.text(TBL_X+COL1_W+COL2_W/2, y0+ROW_H/2, val,
+                        ha='center', va='center', fontproperties=f_val, color=fc, zorder=3)
 
         ax.add_patch(FancyBboxPatch((TBL_X, y_start), TBL_W, tbl_h,
                      boxstyle=f"round,pad=0,rounding_size={RADIUS}",
@@ -259,48 +315,6 @@ def render_daily_png(data: dict, output_path: str = None) -> str:
         t.set_clip_path(rv_clip); t.set_clip_on(True)
         x += cw_i
     y += COL_HDR
-
-    from PIL import Image as PILImage, ImageDraw as PILDraw, ImageFont as PILFont
-
-    def _pil_text_img(text, cell_w, cell_h, font_size, color, bg):
-        """用 Pillow 把文字渲染到指定尺寸的图片，完全不会溢出"""
-        PAD = 24
-        img  = PILImage.new("RGBA", (int(cell_w), int(cell_h)), (0,0,0,0))
-        draw = PILDraw.Draw(img)
-        # 背景色
-        r,g,b = tuple(int(bg.lstrip('#')[i:i+2],16) for i in (0,2,4))
-        img.paste((r,g,b,255), [0,0,int(cell_w),int(cell_h)])
-
-        # 加载字体
-        pil_fp = None
-        for p in [FONT_BOLD, FONT_SHS_B, FONT_PATH, FONT_SHS_R, FONT_FB]:
-            if os.path.exists(p):
-                try: pil_fp = PILFont.truetype(p, font_size); break
-                except: pass
-        if pil_fp is None:
-            pil_fp = PILFont.load_default()
-
-        # 按实际像素宽度换行
-        words = list(text)
-        lines, cur = [], ""
-        for ch in words:
-            test = cur + ch
-            bb = draw.textbbox((0,0), test, font=pil_fp)
-            if bb[2] > cell_w - PAD*2 and cur:
-                lines.append(cur); cur = ch
-            else:
-                cur = test
-        if cur: lines.append(cur)
-
-        # 垂直居中绘制
-        line_h = font_size + 8
-        total_h = len(lines) * line_h
-        ty = (cell_h - total_h) // 2
-        cr,cg,cb = tuple(int(color.lstrip('#')[i:i+2],16) for i in (0,2,4))
-        for line in lines:
-            draw.text((PAD, ty), line, font=pil_fp, fill=(cr,cg,cb,255))
-            ty += line_h
-        return np.array(img) / 255.0
 
     for ri, row in enumerate(rv_rows_data):
         cells = [row.get("date",""), row.get("actual",""),
@@ -369,20 +383,20 @@ def render_daily_png(data: dict, output_path: str = None) -> str:
 
 if __name__ == '__main__':
     MOCK = {
-        'forecast_date': '2026年6月4日',
-        'report_date':   '2026年6月3日',
+        'forecast_date': '2026年6月19日',
+        'report_date':   '2026年6月18日',
         'dept':          '用电监测分析专班',
         'forecast': [
-            {'label': '6月4日(星期四)', 'value': '10.40'},
-            {'label': '未来七天',       'value': '10.40'},
-            {'label': '预警信息',       'value': '/'},
+            {'label': '6月19日(星期五)', 'value': '10.20'},
+            {'label': '未来七天',        'value': '10.85'},
+            {'label': '预警信息',        'value': '已触发橙色预警（用电高峰时段11:00-15:00）', 'is_alert': True},
         ],
         'review': [{
-            'date':     '6月2日(星期二)',
-            'actual':   '10.30',
-            'forecast': '9.99',
-            'accuracy': '97.0%',
-            'reason':   '由于华东、华中区域强降气温偏低，导致预测结果偏小',
+            'date':     '6月18日(星期四)',
+            'actual':   '10.05',
+            'forecast': '9.90',
+            'accuracy': '98.5%',
+            'reason':   '华东地区出现强对流天气，工业用户错峰生产部分抵消，实际负荷略低于此前修正值',
         }]
     }
     render_daily_png(MOCK, output_path=f"{OUT_DIR}/daily_test.png")
