@@ -232,6 +232,7 @@ def render_daily_png(data: dict, output_path: str = None) -> str:
 
     # ── ⑥ 复盘表 ─────────────────────────────────────
     y += SEP_H
+    rv_start = y    # 记录复盘表起始 y，用于计算实际高度
     rv_tbl_h = rv_h
     rv_clip  = FancyBboxPatch((TBL_X, y), TBL_W, rv_tbl_h,
                               boxstyle=f"round,pad=0,rounding_size={RADIUS}",
@@ -321,12 +322,14 @@ def render_daily_png(data: dict, output_path: str = None) -> str:
             if ci == 4:
                 # 偏差原因：Pillow 渲染，绝对不溢出
                 img_arr = _pil_text_img(cell, cw_i, actual_row_h, 44, DARK, bg)
-                ax.imshow(img_arr,
+                im = ax.imshow(img_arr,
                           extent=[x, x+cw_i, y+actual_row_h, y],
                           aspect='auto', zorder=3)
+                im.set_clip_path(rv_clip)
+                im.set_clip_on(True)
                 # 补边框
-                ax.add_patch(mpatches.Rectangle((x, y), cw_i, actual_row_h,
-                             facecolor='none', edgecolor="#437A83", lw=0.8, zorder=4))
+                RC(ax.add_patch(mpatches.Rectangle((x, y), cw_i, actual_row_h,
+                             facecolor='none', edgecolor="#437A83", lw=0.8, zorder=4)))
             else:
                 RC(ax.add_patch(mpatches.Rectangle((x, y), cw_i, actual_row_h,
                                 facecolor=bg, edgecolor="#437A83", lw=0.8, zorder=2)))
@@ -341,7 +344,9 @@ def render_daily_png(data: dict, output_path: str = None) -> str:
             x += cw_i
         y += actual_row_h
 
-    ax.add_patch(FancyBboxPatch((TBL_X, y-rv_tbl_h), TBL_W, rv_tbl_h,
+    # 用实际高度画外框，确保圆角覆盖整张表
+    actual_rv_h = y - rv_start
+    ax.add_patch(FancyBboxPatch((TBL_X, rv_start), TBL_W, actual_rv_h,
                  boxstyle=f"round,pad=0,rounding_size={RADIUS}",
                  facecolor="none", edgecolor="#437A83", lw=1.2, zorder=6))
 
