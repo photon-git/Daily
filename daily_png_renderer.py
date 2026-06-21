@@ -375,8 +375,7 @@ def render_daily_png(data: dict, output_path: str = None) -> str:
     if not output_path:
         output_path = f"{OUT_DIR}/daily_{date.today().strftime('%Y-%m-%d')}.png"
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    fig.savefig(output_path, dpi=DPI, bbox_inches='tight', pad_inches=0,
-                format='png', optimize=True)
+    fig.savefig(output_path, dpi=DPI, bbox_inches='tight', pad_inches=0)
     plt.close(fig)
     plt.clf()
     import gc; gc.collect()
