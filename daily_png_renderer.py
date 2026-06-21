@@ -138,7 +138,7 @@ def _pil_text_img(text, cell_w, cell_h, font_size, color, bg):
 
 
 def render_daily_png(data: dict, output_path: str = None) -> str:
-    DPI   = 72    # 从100降到72，内存减少约50%，图片尺寸不变
+    DPI   = 100
     PX_W  = 1920
     INCH_W= PX_W / DPI
 
