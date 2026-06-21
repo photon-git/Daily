@@ -4,7 +4,7 @@
 """
 
 import os, sys, json, hashlib, hmac, base64, tempfile, requests
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, Request, Response, BackgroundTasks
 from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -16,22 +16,22 @@ app = FastAPI()
 APP_ID     = os.environ.get("FEISHU_APP_ID",     "cli_aab8fe3742bcdcd6")
 APP_SECRET = os.environ.get("FEISHU_APP_SECRET",  "O2MMQJbSlw5MJfmcPXmq8b3yxFurGXem")
 
-# 已处理的消息ID（文件锁去重，跨进程有效）
-_LOCK_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output", ".locks")
+# 去重：记录已处理的消息ID和时间，5分钟内同一消息不重复处理
+import time
+_processed: dict = {}   # {msg_id: timestamp}
+_DEDUP_TTL = 300        # 5分钟
 
 def _is_processed(msg_id: str) -> bool:
-    """检查消息是否已处理，未处理则标记并返回 False"""
-    os.makedirs(_LOCK_DIR, exist_ok=True)
-    lock_file = os.path.join(_LOCK_DIR, f"{msg_id}.lock")
-    if os.path.exists(lock_file):
+    now = time.time()
+    # 清理过期记录
+    expired = [k for k, v in _processed.items() if now - v > _DEDUP_TTL]
+    for k in expired:
+        del _processed[k]
+    # 检查是否已处理
+    if msg_id in _processed:
         return True
-    # 原子创建锁文件
-    try:
-        fd = os.open(lock_file, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        os.close(fd)
-        return False
-    except FileExistsError:
-        return True
+    _processed[msg_id] = now
+    return False
 
 # ── 获取飞书 access token ─────────────────────────────
 def get_token():
@@ -65,9 +65,50 @@ def send_message(chat_id: str, msg_type: str, content: dict, token: str):
         timeout=10
     )
 
+def _cleanup_old_images(out_dir: str, keep: int = 5):
+    """只保留最新的 keep 张图片，其余删除"""
+    pngs = sorted(
+        [os.path.join(out_dir, f) for f in os.listdir(out_dir) if f.endswith('.png')],
+        key=os.path.getmtime
+    )
+    for f in pngs[:-keep]:
+        try: os.remove(f)
+        except: pass
+
+def process_in_background(text: str, chat_id: str):
+    """后台处理：解析 + 出图 + 发送，不阻塞 webhook 响应"""
+    out_path = None
+    try:
+        token = get_token()
+        data  = parse_daily_report(text)
+        out_dir  = os.path.join(os.path.dirname(__file__), "output")
+        os.makedirs(out_dir, exist_ok=True)
+        out_path = os.path.join(out_dir, f"daily_{datetime.now().strftime('%Y%m%d%H%M%S')}.png")
+        render_daily_png(data, output_path=out_path)
+        image_key = upload_image(out_path, token)
+        print(f"[webhook] image_key={image_key}")
+        if image_key:
+            send_message(chat_id, "image", {"image_key": image_key}, token)
+            # 上传成功后删除本地文件
+            os.remove(out_path)
+        else:
+            send_message(chat_id, "text", {"text": "❌ 图片上传失败，请稍后重试"}, token)
+        # 清理多余旧图，最多保留5张
+        _cleanup_old_images(out_dir, keep=5)
+    except Exception as e:
+        print(f"[error] {e}")
+        if out_path and os.path.exists(out_path):
+            try: os.remove(out_path)
+            except: pass
+        try:
+            send_message(chat_id, "text", {"text": f"❌ 生成失败：{str(e)}"}, get_token())
+        except:
+            pass
+
+
 # ── Webhook 主入口 ────────────────────────────────────
 @app.post("/webhook")
-async def webhook(request: Request):
+async def webhook(request: Request, background_tasks: BackgroundTasks):
     body = await request.json()
 
     # 飞书 URL 验证（第一次配置时）
@@ -115,28 +156,9 @@ async def webhook(request: Request):
 
     token = get_token()
 
-    try:
-        # 解析文本
-        data = parse_daily_report(text)
-
-        # 生成图片
-        out_dir  = os.path.join(os.path.dirname(__file__), "output")
-        os.makedirs(out_dir, exist_ok=True)
-        out_path = os.path.join(out_dir, f"daily_{datetime.now().strftime('%Y%m%d%H%M%S')}.png")
-        render_daily_png(data, output_path=out_path)
-
-        # 上传并发送图片
-        image_key = upload_image(out_path, token)
-        print(f"[webhook] image_key={image_key}")
-        if image_key:
-            send_message(chat_id, "image", {"image_key": image_key}, token)
-        else:
-            send_message(chat_id, "text", {"text": "❌ 图片上传失败，请稍后重试"}, token)
-
-    except Exception as e:
-        send_message(chat_id, "text", {"text": f"❌ 生成失败：{str(e)}"}, token)
-
-    return Response("ok")
+    # 立即返回 200，后台异步处理（防止飞书超时重试）
+    background_tasks.add_task(process_in_background, text, chat_id)
+    return Response("ok", status_code=200)
 
 
 @app.get("/")

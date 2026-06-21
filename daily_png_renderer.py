@@ -138,7 +138,7 @@ def _pil_text_img(text, cell_w, cell_h, font_size, color, bg):
 
 
 def render_daily_png(data: dict, output_path: str = None) -> str:
-    DPI   = 100
+    DPI   = 72    # 从100降到72，内存减少约50%，图片尺寸不变
     PX_W  = 1920
     INCH_W= PX_W / DPI
 
@@ -375,8 +375,11 @@ def render_daily_png(data: dict, output_path: str = None) -> str:
     if not output_path:
         output_path = f"{OUT_DIR}/daily_{date.today().strftime('%Y-%m-%d')}.png"
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    fig.savefig(output_path, dpi=DPI, bbox_inches='tight', pad_inches=0)
+    fig.savefig(output_path, dpi=DPI, bbox_inches='tight', pad_inches=0,
+                format='png', optimize=True)
     plt.close(fig)
+    plt.clf()
+    import gc; gc.collect()
     print(f"✅ 已生成：{output_path}  ({PX_W}×{TOT_H}px)")
     return output_path
 
