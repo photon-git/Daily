@@ -16,8 +16,13 @@ from weekly_png_renderer import render_weekly_png
 
 app = FastAPI()
 
+# 日报机器人凭证
 APP_ID     = os.environ.get("FEISHU_APP_ID",    "cli_aab8fe3742bcdcd6")
 APP_SECRET = os.environ.get("FEISHU_APP_SECRET", "O2MMQJbSlw5MJfmcPXmq8b3yxFurGXem")
+
+# 周报机器人凭证（单独应用）
+WEEKLY_APP_ID     = os.environ.get("FEISHU_WEEKLY_APP_ID",     APP_ID)
+WEEKLY_APP_SECRET = os.environ.get("FEISHU_WEEKLY_APP_SECRET", APP_SECRET)
 
 # 去重
 _processed: dict = {}
@@ -31,10 +36,12 @@ def _is_processed(msg_id: str) -> bool:
     _processed[msg_id] = now
     return False
 
-def get_token():
+def get_token(weekly=False):
+    aid = WEEKLY_APP_ID if weekly else APP_ID
+    asc = WEEKLY_APP_SECRET if weekly else APP_SECRET
     r = requests.post(
         "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
-        json={"app_id": APP_ID, "app_secret": APP_SECRET}, timeout=10)
+        json={"app_id": aid, "app_secret": asc}, timeout=10)
     return r.json().get("tenant_access_token", "")
 
 def upload_image(img_path: str, token: str) -> str:
@@ -72,13 +79,14 @@ def _is_weekly(text: str) -> bool:
 
 def process_in_background(text: str, chat_id: str, mode: str = "daily"):
     out_path = None
+    weekly   = (mode == "weekly")
     try:
-        token   = get_token()
+        token   = get_token(weekly)
         out_dir = os.path.join(os.path.dirname(__file__), "output")
         os.makedirs(out_dir, exist_ok=True)
         ts = datetime.now().strftime('%Y%m%d%H%M%S')
 
-        if mode == "weekly":
+        if weekly:
             data     = parse_weekly_report(text)
             out_path = os.path.join(out_dir, f"weekly_{ts}.png")
             render_weekly_png(data, output_path=out_path)
@@ -99,36 +107,31 @@ def process_in_background(text: str, chat_id: str, mode: str = "daily"):
         if out_path and os.path.exists(out_path):
             try: os.remove(out_path)
             except: pass
-        try: send_message(chat_id, "text", {"text": f"❌ 生成失败：{str(e)}"}, get_token())
+        try: send_message(chat_id, "text", {"text": f"❌ 生成失败：{str(e)}"}, get_token(weekly))
         except: pass
 
 
 def process_file_in_background(file_key: str, msg_id: str, chat_id: str):
-    """下载飞书文件 → 解析 Word → 出图"""
-    out_path  = None
-    tmp_docx  = None
+    """下载飞书文件 → 解析 Word → 出图（使用周报机器人凭证）"""
+    out_path = None
+    tmp_docx = None
     try:
-        token   = get_token()
+        token   = get_token(weekly=True)
         out_dir = os.path.join(os.path.dirname(__file__), "output")
         os.makedirs(out_dir, exist_ok=True)
 
-        # 下载文件
         r = requests.get(
             f"https://open.feishu.cn/open-apis/im/v1/messages/{msg_id}/resources/{file_key}",
             headers={"Authorization": f"Bearer {token}"},
-            params={"type": "file"},
-            timeout=30
-        )
+            params={"type": "file"}, timeout=30)
         if r.status_code != 200:
             send_message(chat_id, "text", {"text": "❌ 文件下载失败"}, token)
             return
 
-        # 保存临时 docx
         tmp_docx = os.path.join(out_dir, f"tmp_{file_key}.docx")
         with open(tmp_docx, "wb") as f:
             f.write(r.content)
 
-        # 解析 + 出图
         from weekly_docx_parser import parse_weekly_docx
         data     = parse_weekly_docx(tmp_docx)
         ts       = datetime.now().strftime('%Y%m%d%H%M%S')
@@ -145,7 +148,7 @@ def process_file_in_background(file_key: str, msg_id: str, chat_id: str):
 
     except Exception as e:
         print(f"[file error] {e}")
-        try: send_message(chat_id, "text", {"text": f"❌ 解析失败：{str(e)}"}, get_token())
+        try: send_message(chat_id, "text", {"text": f"❌ 解析失败：{str(e)}"}, get_token(weekly=True))
         except: pass
     finally:
         if tmp_docx and os.path.exists(tmp_docx):
@@ -182,9 +185,23 @@ async def _handle_webhook(request: Request, background_tasks: BackgroundTasks, m
     if sender.get("sender_type") == "app": return Response("ok")
 
     mentions = event.get("message", {}).get("mentions", [])
-    if not mentions: return Response("ok")
-
     msg_type = msg.get("message_type", "")
+
+    # 文件消息：周报机器人直接处理，不需要 @
+    if msg_type == "file" and mode == "weekly":
+        try:
+            content  = json.loads(msg.get("content", "{}"))
+            file_key = content.get("file_key", "")
+            # 只处理 docx 文件
+            file_name = content.get("file_name", "")
+            if file_key and file_name.endswith(".docx"):
+                background_tasks.add_task(process_file_in_background, file_key, msg_id, chat_id)
+        except:
+            pass
+        return Response("ok")
+
+    # 文字消息：需要 @ 机器人
+    if not mentions: return Response("ok")
 
     if msg_type == "text":
         try:
@@ -195,16 +212,6 @@ async def _handle_webhook(request: Request, background_tasks: BackgroundTasks, m
             return Response("ok")
         if not text: return Response("ok")
         background_tasks.add_task(process_in_background, text, chat_id, mode)
-
-    elif msg_type == "file" and mode == "weekly":
-        # 周报机器人支持接收 Word 文件
-        try:
-            content = json.loads(msg.get("content", "{}"))
-            file_key = content.get("file_key", "")
-            if file_key:
-                background_tasks.add_task(process_file_in_background, file_key, msg_id, chat_id)
-        except:
-            return Response("ok")
 
     return Response("ok", status_code=200)
 
