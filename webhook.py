@@ -184,6 +184,9 @@ async def _handle_webhook(request: Request, background_tasks: BackgroundTasks, m
     sender = event.get("sender", {})
     if sender.get("sender_type") == "app": return Response("ok")
 
+    # 只允许群消息，私聊直接忽略
+    if msg.get("chat_type") != "group": return Response("ok")
+
     mentions = event.get("message", {}).get("mentions", [])
     msg_type = msg.get("message_type", "")
 
