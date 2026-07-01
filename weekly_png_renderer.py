@@ -200,17 +200,9 @@ def render_weekly_png(data: dict, output_path: str = None) -> str:
     top_h = 220   # 记录 top 高度供后用
     draw = ImageDraw.Draw(img)
 
-    # ── Header：logo 左，标题+时间 右 ──────────────────
+    # ── Header：标题+时间 右 ──────────────────
     y = 16
     HDR_H_PX = 120
-
-    # 贴 logo（左上，放大）
-    if os.path.exists(JB_PATH):
-        jb = Image.open(JB_PATH).convert("RGBA")
-        jb_h = 120
-        jb_w = int(jb.width * jb_h / jb.height)
-        jb = jb.resize((jb_w, jb_h), Image.LANCZOS)
-        img.paste(jb, (PAD_X, 20), jb)
 
     # 主标题靠右，黑色加粗，字号放大
     title_text = data.get('title', '每周政策信息')
@@ -358,26 +350,24 @@ def render_weekly_png(data: dict, output_path: str = None) -> str:
         final.paste(kuang2, (BOX_X, CONTENT_TOP), kuang2)
 
     # 3. 贴 logo
-    if os.path.exists(JB_PATH):
-        jb2 = Image.open(JB_PATH).convert("RGBA")
-        jb_h2 = 120
-        jb_w2 = int(jb2.width * jb_h2 / jb2.height)
-        jb2 = jb2.resize((jb_w2, jb_h2), Image.LANCZOS)
-        final.paste(jb2, (PAD_X, 20), jb2)
-
     # 4. 文字层叠在最上（白色背景区域透出底层）
-    # 用 composite：文字画布白色部分透出背景，黑色文字保留
-    # 把文字层转为 RGBA，白色区域 alpha=0，文字区域 alpha=255
     import numpy as np
     txt_arr  = np.array(text_img.convert("RGB")).astype(float)
-    # 白色(255,255,255)区域设为透明
-    mask = np.all(txt_arr > 240, axis=2)   # 近白色区域
+    mask = np.all(txt_arr > 240, axis=2)
     alpha = np.where(mask, 0, 255).astype(np.uint8)
     txt_rgba = np.dstack([txt_arr.astype(np.uint8), alpha])
     txt_layer = Image.fromarray(txt_rgba, "RGBA")
     final = final.convert("RGBA")
     final.paste(txt_layer, (0, 0), txt_layer)
     final = final.convert("RGB")
+
+    # 5. 带角标版本：文字合成后再贴 logo
+    if os.path.exists(JB_PATH):
+        jb2 = Image.open(JB_PATH).convert("RGBA")
+        jb_h2 = 120
+        jb_w2 = int(jb2.width * jb_h2 / jb2.height)
+        jb2 = jb2.resize((jb_w2, jb_h2), Image.LANCZOS)
+        final.paste(jb2, (PAD_X, 20), jb2)
 
     # 保存（带角标版本）
     if not output_path:
