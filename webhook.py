@@ -100,18 +100,25 @@ def process_in_background(text: str, chat_id: str, mode: str = "daily"):
         if weekly:
             data     = parse_weekly_report(text)
             out_path = os.path.join(out_dir, f"weekly_{ts}.png")
-            _run_once(render_weekly_png, data, output_path=out_path)
+            paths    = _run_once(render_weekly_png, data, output_path=out_path)
+            for p in (paths if isinstance(paths, tuple) else (paths,)):
+                if not p: continue
+                key = upload_image(p, token)
+                if key:
+                    send_message(chat_id, "image", {"image_key": key}, token)
+                else:
+                    send_message(chat_id, "text", {"text": "❌ 图片上传失败"}, token)
+                if os.path.exists(p): os.remove(p)
         else:
             data     = parse_daily_report(text)
             out_path = os.path.join(out_dir, f"daily_{ts}.png")
             _run_once(render_daily_png, data, output_path=out_path)
-
-        image_key = upload_image(out_path, token)
-        if image_key:
-            send_message(chat_id, "image", {"image_key": image_key}, token)
-            os.remove(out_path)
-        else:
-            send_message(chat_id, "text", {"text": "❌ 图片上传失败"}, token)
+            image_key = upload_image(out_path, token)
+            if image_key:
+                send_message(chat_id, "image", {"image_key": image_key}, token)
+                os.remove(out_path)
+            else:
+                send_message(chat_id, "text", {"text": "❌ 图片上传失败"}, token)
         _cleanup_old_images(out_dir, keep=3)
     except Exception as e:
         import traceback
@@ -154,14 +161,15 @@ def process_file_in_background(file_key: str, msg_id: str, chat_id: str):
         data     = parse_weekly_docx(tmp_docx)
         ts       = datetime.now().strftime('%Y%m%d%H%M%S')
         out_path = os.path.join(out_dir, f"weekly_{ts}.png")
-        _run_once(render_weekly_png, data, output_path=out_path)
-
-        image_key = upload_image(out_path, token)
-        if image_key:
-            send_message(chat_id, "image", {"image_key": image_key}, token)
-            os.remove(out_path)
-        else:
-            send_message(chat_id, "text", {"text": "❌ 图片上传失败"}, token)
+        paths    = _run_once(render_weekly_png, data, output_path=out_path)
+        for p in (paths if isinstance(paths, tuple) else (paths,)):
+            if not p: continue
+            key = upload_image(p, token)
+            if key:
+                send_message(chat_id, "image", {"image_key": key}, token)
+            else:
+                send_message(chat_id, "text", {"text": "❌ 图片上传失败"}, token)
+            if os.path.exists(p): os.remove(p)
         _cleanup_old_images(out_dir, keep=3)
 
     except Exception as e:

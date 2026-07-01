@@ -197,7 +197,7 @@ def render_weekly_png(data: dict, output_path: str = None) -> str:
     img = Image.new("RGB", (W, total_h), (255, 255, 255))
 
     # 第二遍只画文字，背景/边框在最后合成
-    top_h = 260   # 记录 top 高度供后用
+    top_h = 220   # 记录 top 高度供后用
     draw = ImageDraw.Draw(img)
 
     # ── Header：logo 左，标题+时间 右 ──────────────────
@@ -379,14 +379,37 @@ def render_weekly_png(data: dict, output_path: str = None) -> str:
     final.paste(txt_layer, (0, 0), txt_layer)
     final = final.convert("RGB")
 
-    # 保存
+    # 保存（带角标版本）
     if not output_path:
         today = datetime.now().strftime('%Y-%m-%d')
         output_path = os.path.join(OUT_DIR, f"weekly_{today}.png")
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     final.save(output_path, "PNG")
     print(f"✅ 已生成：{output_path}  ({W}×{actual_h}px)")
-    return output_path
+
+    # 不带角标版本：去掉 logo 重新合成
+    base, ext = os.path.splitext(output_path)
+    path_nojb = f"{base}_nojb{ext}"
+    final_nojb = Image.new("RGB", (W, actual_h), BG)
+    if os.path.exists(TOP_PATH):
+        top2 = Image.open(TOP_PATH).convert("RGB").resize((W, top_h), Image.LANCZOS)
+        final_nojb.paste(top2, (0, 0))
+    if os.path.exists(WEEKBG_PATH):
+        remain2 = actual_h - top_h
+        if remain2 > 0:
+            bg2 = Image.open(WEEKBG_PATH).convert("RGB").resize((W, remain2), Image.LANCZOS)
+            final_nojb.paste(bg2, (0, top_h))
+    if os.path.exists(KUANG_PATH):
+        kuang3 = Image.open(KUANG_PATH).convert("RGBA")
+        kuang3 = kuang3.resize((BOX_W, actual_h - CONTENT_TOP), Image.LANCZOS)
+        final_nojb.paste(kuang3, (BOX_X, CONTENT_TOP), kuang3)
+    final_nojb = final_nojb.convert("RGBA")
+    final_nojb.paste(txt_layer, (0, 0), txt_layer)
+    final_nojb = final_nojb.convert("RGB")
+    final_nojb.save(path_nojb, "PNG")
+    print(f"✅ 已生成（无角标）：{path_nojb}  ({W}×{actual_h}px)")
+
+    return output_path, path_nojb
 
 
 if __name__ == '__main__':
