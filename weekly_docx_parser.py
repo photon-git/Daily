@@ -53,16 +53,17 @@ def parse_weekly_docx(docx_path: str) -> dict:
             current_item = None
             continue
 
-        # 条目标题：1. 2. 3. ...
-        if re.match(r'^\d+[\.．]', text) and current_section is not None:
-            # 提取来源（末尾括号）
-            source_match = re.search(r'[（(]([^）)]+)[）)]$', text)
+        # 条目标题：1. 2. 3. 或 （1）（2）（3） 两种格式
+        is_item = (re.match(r'^\d+[\.．]', text) or re.match(r'^[（(]\d+[）)]', text)) and current_section is not None
+        if is_item:
+            # 提取来源（末尾括号，排除编号括号）
+            source_match = re.search(r'[（(]([^）)]{2,20})[）)]\s*$', text)
             source = source_match.group(1) if source_match else ""
-            clean_title = re.sub(r'\s*[（(][^）)]+[）)]\s*$', '', text).strip()
-            # 去掉编号前缀
-            idx_match = re.match(r'^(\d+)[\.．]\s*', clean_title)
+            clean_title = re.sub(r'\s*[（(][^）)]{2,20}[）)]\s*$', '', text).strip()
+            # 去掉编号前缀（支持 1. 和 （1） 两种）
+            idx_match = re.match(r'^(\d+)[\.．]\s*', clean_title) or re.match(r'^[（(](\d+)[）)]\s*', clean_title)
             index = idx_match.group(1) if idx_match else str(len(current_section["items"])+1)
-            item_title = re.sub(r'^\d+[\.．]\s*', '', clean_title)
+            item_title = re.sub(r'^\d+[\.．]\s*', '', re.sub(r'^[（(]\d+[）)]\s*', '', clean_title))
             current_item = {
                 "index": index,
                 "title": item_title,
