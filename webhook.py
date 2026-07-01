@@ -215,6 +215,9 @@ async def _handle_webhook(request: Request, background_tasks: BackgroundTasks, m
             print(f"[weekly file] 解析消息异常: {ex}")
         return Response("ok")
 
+    # weekly 路由只处理文件，文字消息一律忽略
+    if mode == "weekly": return Response("ok")
+
     # 文字消息：需要 @ 机器人
     if not mentions: return Response("ok")
 
