@@ -9,6 +9,10 @@ import os, re
 from PIL import Image, ImageDraw, ImageFont
 from datetime import datetime
 
+# 行首禁则：这些符号不能出现在行首
+_NO_LINE_START = set('，。！？、；：）》」』”…—～·,.!?;:)]}')
+_NO_LINE_END   = set('（《「『“([{')
+
 _HERE     = os.path.dirname(os.path.abspath(__file__))
 JB_PATH    = os.path.join(_HERE, "assets/jiaobiao.png")
 WEEKBG_PATH= os.path.join(_HERE, "assets/weekbg.png")
@@ -45,7 +49,7 @@ def _font(size, bold=False):
 
 
 def _text_wrap(draw, text, font, max_w):
-    """按像素宽度自动换行，返回行列表"""
+    """按像素宽度自动换行，行首/行尾禁则处理"""
     if not text:
         return [""]
     lines, cur = [], ""
@@ -53,8 +57,17 @@ def _text_wrap(draw, text, font, max_w):
         test = cur + ch
         bb = draw.textbbox((0,0), test, font=font)
         if bb[2] > max_w and cur:
-            lines.append(cur)
-            cur = ch
+            if ch in _NO_LINE_START:
+                # 行首禁则：符号并到本行末
+                lines.append(cur + ch)
+                cur = ""
+            elif cur and cur[-1] in _NO_LINE_END:
+                # 行尾禁则：行末开括号挪到下一行
+                lines.append(cur[:-1])
+                cur = cur[-1] + ch
+            else:
+                lines.append(cur)
+                cur = ch
         else:
             cur = test
     if cur:
@@ -263,11 +276,25 @@ def render_weekly_png(data: dict, output_path: str = None) -> str:
             bb = draw.textbbox((0,0), ch, font=fp)
             cw = bb[2] - bb[0]
             if cur_w + cw > max_w and cur_line:
-                lines.append(cur_line)
-                cur_line = []
-                cur_w = 0
-            cur_line.append((ch, is_bold))
-            cur_w += cw
+                if ch in _NO_LINE_START:
+                    # 行首禁则：并到本行末
+                    cur_line.append((ch, is_bold))
+                    lines.append(cur_line)
+                    cur_line = []
+                    cur_w = 0
+                elif cur_line and cur_line[-1][0] in _NO_LINE_END:
+                    # 行尾禁则：行末开括号挪到下一行
+                    last = cur_line.pop()
+                    lines.append(cur_line)
+                    cur_line = [last, (ch, is_bold)]
+                    cur_w = draw.textbbox((0,0), last[0], font=(f_body_bold if last[1] else f_body))[2] + cw
+                else:
+                    lines.append(cur_line)
+                    cur_line = [(ch, is_bold)]
+                    cur_w = cw
+            else:
+                cur_line.append((ch, is_bold))
+                cur_w += cw
         if cur_line:
             lines.append(cur_line)
 
