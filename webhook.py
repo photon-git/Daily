@@ -117,15 +117,20 @@ def process_file_in_background(file_key: str, msg_id: str, chat_id: str):
     tmp_docx = None
     try:
         token   = get_token(weekly=True)
+        print(f"[file bg] token={'ok' if token else 'EMPTY'} file_key={file_key}")
         out_dir = os.path.join(os.path.dirname(__file__), "output")
         os.makedirs(out_dir, exist_ok=True)
 
+        url = f"https://open.feishu.cn/open-apis/im/v1/messages/{msg_id}/resources/{file_key}"
+        print(f"[file bg] 下载 {url}")
         r = requests.get(
-            f"https://open.feishu.cn/open-apis/im/v1/messages/{msg_id}/resources/{file_key}",
+            url,
             headers={"Authorization": f"Bearer {token}"},
             params={"type": "file"}, timeout=30)
+        print(f"[file bg] 下载状态={r.status_code} 大小={len(r.content)}")
         if r.status_code != 200:
-            send_message(chat_id, "text", {"text": "❌ 文件下载失败"}, token)
+            print(f"[file bg] 下载失败 body={r.text[:200]}")
+            send_message(chat_id, "text", {"text": f"❌ 文件下载失败({r.status_code})"}, token)
             return
 
         tmp_docx = os.path.join(out_dir, f"tmp_{file_key}.docx")
@@ -193,14 +198,21 @@ async def _handle_webhook(request: Request, background_tasks: BackgroundTasks, m
     # 文件消息：周报机器人直接处理，不需要 @
     if msg_type == "file" and mode == "weekly":
         try:
-            content  = json.loads(msg.get("content", "{}"))
-            file_key = content.get("file_key", "")
-            # 只处理 docx 文件
-            file_name = content.get("file_name", "")
-            if file_key and file_name.endswith(".docx"):
+            raw_content = msg.get("content", "{}")
+            print(f"[weekly file] msg_id={msg_id} chat_id={chat_id} raw_content={raw_content}")
+            content   = json.loads(raw_content)
+            file_key  = content.get("file_key", "")
+            file_name = content.get("file_name", "") or ""
+            print(f"[weekly file] file_key={file_key} file_name={file_name}")
+            if not file_key:
+                print("[weekly file] 无 file_key，跳过")
+            elif file_name and not file_name.lower().endswith(".docx"):
+                print(f"[weekly file] 非 docx 文件({file_name})，跳过")
+            else:
+                # file_name 为空时也尝试处理（飞书部分场景不返回 file_name）
                 background_tasks.add_task(process_file_in_background, file_key, msg_id, chat_id)
-        except:
-            pass
+        except Exception as ex:
+            print(f"[weekly file] 解析消息异常: {ex}")
         return Response("ok")
 
     # 文字消息：需要 @ 机器人
