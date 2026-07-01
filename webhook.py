@@ -78,6 +78,16 @@ def _is_weekly(text: str) -> bool:
     keywords = ["周报", "每周政策", "每周信息", "weekly"]
     return any(kw in text[:20] for kw in keywords)
 
+def _run_once(fn, *args, **kwargs):
+    """执行一次，若失败重试一次，仍失败抛出异常"""
+    try:
+        return fn(*args, **kwargs)
+    except Exception as e:
+        print(f"[retry] 首次失败: {e}，1秒后重试")
+        time.sleep(1)
+        return fn(*args, **kwargs)
+
+
 def process_in_background(text: str, chat_id: str, mode: str = "daily"):
     out_path = None
     weekly   = (mode == "weekly")
@@ -90,11 +100,11 @@ def process_in_background(text: str, chat_id: str, mode: str = "daily"):
         if weekly:
             data     = parse_weekly_report(text)
             out_path = os.path.join(out_dir, f"weekly_{ts}.png")
-            render_weekly_png(data, output_path=out_path)
+            _run_once(render_weekly_png, data, output_path=out_path)
         else:
             data     = parse_daily_report(text)
             out_path = os.path.join(out_dir, f"daily_{ts}.png")
-            render_daily_png(data, output_path=out_path)
+            _run_once(render_daily_png, data, output_path=out_path)
 
         image_key = upload_image(out_path, token)
         if image_key:
@@ -104,7 +114,9 @@ def process_in_background(text: str, chat_id: str, mode: str = "daily"):
             send_message(chat_id, "text", {"text": "❌ 图片上传失败"}, token)
         _cleanup_old_images(out_dir, keep=3)
     except Exception as e:
-        print(f"[error] {e}")
+        import traceback
+        err_detail = traceback.format_exc()
+        print(f"[error] {err_detail}")
         if out_path and os.path.exists(out_path):
             try: os.remove(out_path)
             except: pass
@@ -142,7 +154,7 @@ def process_file_in_background(file_key: str, msg_id: str, chat_id: str):
         data     = parse_weekly_docx(tmp_docx)
         ts       = datetime.now().strftime('%Y%m%d%H%M%S')
         out_path = os.path.join(out_dir, f"weekly_{ts}.png")
-        render_weekly_png(data, output_path=out_path)
+        _run_once(render_weekly_png, data, output_path=out_path)
 
         image_key = upload_image(out_path, token)
         if image_key:
@@ -153,7 +165,9 @@ def process_file_in_background(file_key: str, msg_id: str, chat_id: str):
         _cleanup_old_images(out_dir, keep=3)
 
     except Exception as e:
-        print(f"[file error] {e}")
+        import traceback
+        err_detail = traceback.format_exc()
+        print(f"[file error] {err_detail}")
         try: send_message(chat_id, "text", {"text": f"❌ 解析失败：{str(e)}"}, get_token(weekly=True))
         except: pass
     finally:
@@ -211,6 +225,8 @@ async def _handle_webhook(request: Request, background_tasks: BackgroundTasks, m
                 print(f"[weekly file] 非 docx 文件({file_name})，跳过")
             else:
                 # file_name 为空时也尝试处理（飞书部分场景不返回 file_name）
+                token = get_token(weekly=True)
+                send_message(chat_id, "text", {"text": "⚙️ 正在解析文档并生成图片，请稍候..."}, token)
                 background_tasks.add_task(process_file_in_background, file_key, msg_id, chat_id)
         except Exception as ex:
             print(f"[weekly file] 解析消息异常: {ex}")
@@ -230,6 +246,8 @@ async def _handle_webhook(request: Request, background_tasks: BackgroundTasks, m
         except:
             return Response("ok")
         if not text: return Response("ok")
+        token = get_token(weekly=False)
+        send_message(chat_id, "text", {"text": "⚙️ 正在解析并生成图片，请稍候..."}, token)
         background_tasks.add_task(process_in_background, text, chat_id, mode)
 
     return Response("ok", status_code=200)
