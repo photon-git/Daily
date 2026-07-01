@@ -28,12 +28,13 @@ WEEKLY_APP_SECRET = os.environ.get("FEISHU_WEEKLY_APP_SECRET", APP_SECRET)
 _processed: dict = {}
 _DEDUP_TTL = 300
 
-def _is_processed(msg_id: str) -> bool:
+def _is_processed(msg_id: str, mode: str = "daily") -> bool:
+    key = f"{mode}:{msg_id}"
     now = time.time()
     expired = [k for k, v in _processed.items() if now - v > _DEDUP_TTL]
     for k in expired: del _processed[k]
-    if msg_id in _processed: return True
-    _processed[msg_id] = now
+    if key in _processed: return True
+    _processed[key] = now
     return False
 
 def get_token(weekly=False):
@@ -184,7 +185,7 @@ async def _handle_webhook(request: Request, background_tasks: BackgroundTasks, m
     chat_id = msg.get("chat_id", "")
     msg_id  = msg.get("message_id", "")
 
-    if _is_processed(msg_id): return Response("ok")
+    if _is_processed(msg_id, mode): return Response("ok")
 
     sender = event.get("sender", {})
     if sender.get("sender_type") == "app": return Response("ok")
