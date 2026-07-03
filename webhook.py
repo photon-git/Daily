@@ -13,6 +13,8 @@ from daily_parser        import parse_daily_report
 from daily_png_renderer  import render_daily_png
 from weekly_parser       import parse_weekly_report
 from weekly_png_renderer import render_weekly_png
+from province_parser     import parse_xlsx
+from province_renderer   import render_province_png
 
 app = FastAPI()
 
@@ -183,6 +185,52 @@ def process_file_in_background(file_key: str, msg_id: str, chat_id: str):
             os.remove(tmp_docx)
 
 
+def process_province_in_background(file_key: str, msg_id: str, chat_id: str, file_name: str = ""):
+    """下载飞书 xlsx 文件 → 解析 → 出图 → 回传"""
+    out_path = None
+    tmp_xlsx = None
+    try:
+        token   = get_token(weekly=False)
+        out_dir = os.path.join(os.path.dirname(__file__), "output")
+        os.makedirs(out_dir, exist_ok=True)
+
+        url = f"https://open.feishu.cn/open-apis/im/v1/messages/{msg_id}/resources/{file_key}"
+        r = requests.get(url, headers={"Authorization": f"Bearer {token}"},
+                         params={"type": "file"}, timeout=30)
+        print(f"[province] 下载状态={r.status_code} 大小={len(r.content)}")
+        if r.status_code != 200:
+            send_message(chat_id, "text", {"text": f"❌ 文件下载失败({r.status_code})"}, token)
+            return
+
+        tmp_xlsx = os.path.join(out_dir, f"tmp_{file_key}.xlsx")
+        with open(tmp_xlsx, "wb") as f:
+            f.write(r.content)
+
+        data     = parse_xlsx(tmp_xlsx, date_range="")
+        ts       = datetime.now().strftime('%Y%m%d%H%M%S')
+        out_path = os.path.join(out_dir, f"province_{ts}.png")
+        _run_once(render_province_png, data, output_path=out_path)
+
+        image_key = upload_image(out_path, token)
+        if image_key:
+            send_message(chat_id, "image", {"image_key": image_key}, token)
+        else:
+            send_message(chat_id, "text", {"text": "❌ 图片上传失败"}, token)
+        _cleanup_old_images(out_dir, keep=3)
+
+    except Exception as e:
+        import traceback
+        print(f"[province error] {traceback.format_exc()}")
+        try: send_message(chat_id, "text", {"text": f"❌ 生成失败：{str(e)}"}, get_token(weekly=False))
+        except: pass
+    finally:
+        if tmp_xlsx and os.path.exists(tmp_xlsx):
+            os.remove(tmp_xlsx)
+        if out_path and os.path.exists(out_path):
+            try: os.remove(out_path)
+            except: pass
+
+
 @app.post("/webhook")
 async def webhook_daily(request: Request, background_tasks: BackgroundTasks):
     """日报机器人入口"""
@@ -192,6 +240,11 @@ async def webhook_daily(request: Request, background_tasks: BackgroundTasks):
 async def webhook_weekly(request: Request, background_tasks: BackgroundTasks):
     """周报机器人入口（支持文字+文件）"""
     return await _handle_webhook(request, background_tasks, mode="weekly")
+
+@app.post("/webhook/province")
+async def webhook_province(request: Request, background_tasks: BackgroundTasks):
+    """省份周榜机器人入口（发 xlsx 文件）"""
+    return await _handle_webhook(request, background_tasks, mode="province")
 
 async def _handle_webhook(request: Request, background_tasks: BackgroundTasks, mode: str):
     body = await request.json()
@@ -218,7 +271,7 @@ async def _handle_webhook(request: Request, background_tasks: BackgroundTasks, m
     mentions = event.get("message", {}).get("mentions", [])
     msg_type = msg.get("message_type", "")
 
-    # 文件消息：周报机器人直接处理，不需要 @
+    # 文件消息：周报机器人处理 docx，省份机器人处理 xlsx
     if msg_type == "file" and mode == "weekly":
         try:
             raw_content = msg.get("content", "{}")
@@ -232,7 +285,6 @@ async def _handle_webhook(request: Request, background_tasks: BackgroundTasks, m
             elif file_name and not file_name.lower().endswith(".docx"):
                 print(f"[weekly file] 非 docx 文件({file_name})，跳过")
             else:
-                # file_name 为空时也尝试处理（飞书部分场景不返回 file_name）
                 token = get_token(weekly=True)
                 send_message(chat_id, "text", {"text": "⚙️ 正在解析文档并生成图片，请稍候..."}, token)
                 background_tasks.add_task(process_file_in_background, file_key, msg_id, chat_id)
@@ -240,8 +292,27 @@ async def _handle_webhook(request: Request, background_tasks: BackgroundTasks, m
             print(f"[weekly file] 解析消息异常: {ex}")
         return Response("ok")
 
-    # weekly 路由只处理文件，文字消息一律忽略
-    if mode == "weekly": return Response("ok")
+    if msg_type == "file" and mode == "province":
+        try:
+            raw_content = msg.get("content", "{}")
+            content   = json.loads(raw_content)
+            file_key  = content.get("file_key", "")
+            file_name = content.get("file_name", "") or ""
+            print(f"[province file] file_key={file_key} file_name={file_name}")
+            if not file_key:
+                print("[province file] 无 file_key，跳过")
+            elif file_name and not (file_name.lower().endswith(".xlsx") or file_name.lower().endswith(".xls")):
+                print(f"[province file] 非 xlsx 文件({file_name})，跳过")
+            else:
+                token = get_token(weekly=False)
+                send_message(chat_id, "text", {"text": "⚙️ 正在解析数据并生成周榜图片，请稍候..."}, token)
+                background_tasks.add_task(process_province_in_background, file_key, msg_id, chat_id, file_name)
+        except Exception as ex:
+            print(f"[province file] 解析消息异常: {ex}")
+        return Response("ok")
+
+    # weekly / province 路由只处理文件，文字消息一律忽略
+    if mode in ("weekly", "province"): return Response("ok")
 
     # 文字消息：需要 @ 机器人
     if not mentions: return Response("ok")
