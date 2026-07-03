@@ -279,44 +279,25 @@ async def _handle_webhook(request: Request, background_tasks: BackgroundTasks, m
     mentions = event.get("message", {}).get("mentions", [])
     msg_type = msg.get("message_type", "")
 
-    # 文件消息：周报机器人处理 docx，省份机器人处理 xlsx
-    if msg_type == "file" and mode == "weekly":
+    # 文件消息路由：xlsx → province，docx → weekly，其他忽略
+    if msg_type == "file":
         try:
-            raw_content = msg.get("content", "{}")
-            print(f"[weekly file] msg_id={msg_id} chat_id={chat_id} raw_content={raw_content}")
-            content   = json.loads(raw_content)
+            content   = json.loads(msg.get("content", "{}"))
             file_key  = content.get("file_key", "")
             file_name = content.get("file_name", "") or ""
-            print(f"[weekly file] file_key={file_key} file_name={file_name}")
+            print(f"[file] mode={mode} file_key={file_key} file_name={file_name}")
             if not file_key:
-                print("[weekly file] 无 file_key，跳过")
-            elif file_name and not file_name.lower().endswith(".docx"):
-                print(f"[weekly file] 非 docx 文件({file_name})，跳过")
-            else:
+                pass
+            elif file_name.lower().endswith(".xlsx") or file_name.lower().endswith(".xls"):
+                token = get_token(province=True)
+                send_message(chat_id, "text", {"text": "⚙️ 正在解析数据并生成周榜图片，请稍候..."}, token)
+                background_tasks.add_task(process_province_in_background, file_key, msg_id, chat_id, file_name)
+            elif file_name.lower().endswith(".docx") or not file_name:
                 token = get_token(weekly=True)
                 send_message(chat_id, "text", {"text": "⚙️ 正在解析文档并生成图片，请稍候..."}, token)
                 background_tasks.add_task(process_file_in_background, file_key, msg_id, chat_id)
         except Exception as ex:
-            print(f"[weekly file] 解析消息异常: {ex}")
-        return Response("ok")
-
-    if msg_type == "file" and mode == "province":
-        try:
-            raw_content = msg.get("content", "{}")
-            content   = json.loads(raw_content)
-            file_key  = content.get("file_key", "")
-            file_name = content.get("file_name", "") or ""
-            print(f"[province file] file_key={file_key} file_name={file_name}")
-            if not file_key:
-                print("[province file] 无 file_key，跳过")
-            elif file_name and not (file_name.lower().endswith(".xlsx") or file_name.lower().endswith(".xls")):
-                print(f"[province file] 非 xlsx 文件({file_name})，跳过")
-            else:
-                token = get_token(weekly=False)
-                send_message(chat_id, "text", {"text": "⚙️ 正在解析数据并生成周榜图片，请稍候..."}, token)
-                background_tasks.add_task(process_province_in_background, file_key, msg_id, chat_id, file_name)
-        except Exception as ex:
-            print(f"[province file] 解析消息异常: {ex}")
+            print(f"[file] 解析消息异常: {ex}")
         return Response("ok")
 
     # weekly / province 路由只处理文件，文字消息一律忽略
