@@ -26,6 +26,10 @@ APP_SECRET = os.environ.get("FEISHU_APP_SECRET", "O2MMQJbSlw5MJfmcPXmq8b3yxFurGX
 WEEKLY_APP_ID     = os.environ.get("FEISHU_WEEKLY_APP_ID",     APP_ID)
 WEEKLY_APP_SECRET = os.environ.get("FEISHU_WEEKLY_APP_SECRET", APP_SECRET)
 
+# 省份周榜机器人凭证（单独应用）
+PROVINCE_APP_ID     = os.environ.get("FEISHU_PROVINCE_APP_ID",     "")
+PROVINCE_APP_SECRET = os.environ.get("FEISHU_PROVINCE_APP_SECRET", "")
+
 # 去重
 _processed: dict = {}
 _DEDUP_TTL = 300
@@ -39,9 +43,13 @@ def _is_processed(msg_id: str, mode: str = "daily") -> bool:
     _processed[key] = now
     return False
 
-def get_token(weekly=False):
-    aid = WEEKLY_APP_ID if weekly else APP_ID
-    asc = WEEKLY_APP_SECRET if weekly else APP_SECRET
+def get_token(weekly=False, province=False):
+    if province:
+        aid, asc = PROVINCE_APP_ID, PROVINCE_APP_SECRET
+    elif weekly:
+        aid, asc = WEEKLY_APP_ID, WEEKLY_APP_SECRET
+    else:
+        aid, asc = APP_ID, APP_SECRET
     r = requests.post(
         "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
         json={"app_id": aid, "app_secret": asc}, timeout=10)
@@ -190,7 +198,7 @@ def process_province_in_background(file_key: str, msg_id: str, chat_id: str, fil
     out_path = None
     tmp_xlsx = None
     try:
-        token   = get_token(weekly=False)
+        token   = get_token(province=True)
         out_dir = os.path.join(os.path.dirname(__file__), "output")
         os.makedirs(out_dir, exist_ok=True)
 
@@ -221,7 +229,7 @@ def process_province_in_background(file_key: str, msg_id: str, chat_id: str, fil
     except Exception as e:
         import traceback
         print(f"[province error] {traceback.format_exc()}")
-        try: send_message(chat_id, "text", {"text": f"❌ 生成失败：{str(e)}"}, get_token(weekly=False))
+        try: send_message(chat_id, "text", {"text": f"❌ 生成失败：{str(e)}"}, get_token(province=True))
         except: pass
     finally:
         if tmp_xlsx and os.path.exists(tmp_xlsx):
