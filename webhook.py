@@ -318,9 +318,11 @@ async def _handle_webhook(request: Request, background_tasks: BackgroundTasks, m
         except:
             return Response("ok")
         if not text: return Response("ok")
+        # 自动识别电量周度数据
+        actual_mode = mode
         token = get_token(weekly=False)
         send_message(chat_id, "text", {"text": "⚙️ 正在解析并生成图片，请稍候..."}, token)
-        background_tasks.add_task(process_in_background, text, chat_id, mode)
+        background_tasks.add_task(process_in_background, text, chat_id, actual_mode)
 
     return Response("ok", status_code=200)
 
