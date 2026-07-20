@@ -32,6 +32,10 @@ WEEKLY_APP_SECRET = os.environ.get("FEISHU_WEEKLY_APP_SECRET", APP_SECRET)
 PROVINCE_APP_ID     = os.environ.get("FEISHU_PROVINCE_APP_ID",     "")
 PROVINCE_APP_SECRET = os.environ.get("FEISHU_PROVINCE_APP_SECRET", "")
 
+# 电量周度数据机器人凭证（单独应用）
+ELEC_APP_ID     = os.environ.get("FEISHU_ELEC_APP_ID",     "")
+ELEC_APP_SECRET = os.environ.get("FEISHU_ELEC_APP_SECRET", "")
+
 # 去重
 _processed: dict = {}
 _DEDUP_TTL = 300
@@ -45,8 +49,10 @@ def _is_processed(msg_id: str, mode: str = "daily") -> bool:
     _processed[key] = now
     return False
 
-def get_token(weekly=False, province=False):
-    if province:
+def get_token(weekly=False, province=False, elec=False):
+    if elec:
+        aid, asc = ELEC_APP_ID, ELEC_APP_SECRET
+    elif province:
         aid, asc = PROVINCE_APP_ID, PROVINCE_APP_SECRET
     elif weekly:
         aid, asc = WEEKLY_APP_ID, WEEKLY_APP_SECRET
@@ -117,12 +123,12 @@ def process_in_background(text: str, chat_id: str, mode: str = "daily"):
             data     = parse_elec_week(text)
             out_path = os.path.join(out_dir, f"elec_week_{ts}.png")
             _run_once(render_elec_week_png, data, output_path=out_path)
-            image_key = upload_image(out_path, token)
+            image_key = upload_image(out_path, get_token(elec=True))
             if image_key:
-                send_message(chat_id, "image", {"image_key": image_key}, token)
+                send_message(chat_id, "image", {"image_key": image_key}, get_token(elec=True))
                 os.remove(out_path)
             else:
-                send_message(chat_id, "text", {"text": "❌ 图片上传失败"}, token)
+                send_message(chat_id, "text", {"text": "❌ 图片上传失败"}, get_token(elec=True))
         elif weekly:
             data     = parse_weekly_report(text)
             out_path = os.path.join(out_dir, f"weekly_{ts}.png")
@@ -261,18 +267,20 @@ def process_province_in_background(file_key: str, msg_id: str, chat_id: str, fil
 
 @app.post("/webhook")
 async def webhook_daily(request: Request, background_tasks: BackgroundTasks):
-    """日报机器人入口"""
     return await _handle_webhook(request, background_tasks, mode="daily")
 
 @app.post("/webhook/weekly")
 async def webhook_weekly(request: Request, background_tasks: BackgroundTasks):
-    """周报机器人入口（支持文字+文件）"""
     return await _handle_webhook(request, background_tasks, mode="weekly")
 
 @app.post("/webhook/province")
 async def webhook_province(request: Request, background_tasks: BackgroundTasks):
-    """省份周榜机器人入口（发 xlsx 文件）"""
     return await _handle_webhook(request, background_tasks, mode="province")
+
+@app.post("/webhook/elec_week")
+async def webhook_elec_week(request: Request, background_tasks: BackgroundTasks):
+    """电量周度数据机器人入口（@ 机器人发文字）"""
+    return await _handle_webhook(request, background_tasks, mode="elec_week")
 
 async def _handle_webhook(request: Request, background_tasks: BackgroundTasks, mode: str):
     body = await request.json()
@@ -321,6 +329,7 @@ async def _handle_webhook(request: Request, background_tasks: BackgroundTasks, m
         return Response("ok")
 
     # weekly / province 路由只处理文件，文字消息一律忽略
+    # weekly / province 路由只处理文件，文字消息忽略
     if mode in ("weekly", "province"): return Response("ok")
 
     # 文字消息：需要 @ 机器人
@@ -334,14 +343,9 @@ async def _handle_webhook(request: Request, background_tasks: BackgroundTasks, m
         except:
             return Response("ok")
         if not text: return Response("ok")
-        # 自动识别类型
-        if _is_elec_week(text):
-            actual_mode = "elec_week"
-        else:
-            actual_mode = mode
-        token = get_token(weekly=False)
-        send_message(chat_id, "text", {"text": "⚙️ 正在解析并生成图片，请稍候..."}, token)
-        background_tasks.add_task(process_in_background, text, chat_id, actual_mode)
+        tok = get_token(elec=True) if mode == "elec_week" else get_token(weekly=False)
+        send_message(chat_id, "text", {"text": "⚙️ 正在解析并生成图片，请稍候..."}, tok)
+        background_tasks.add_task(process_in_background, text, chat_id, mode)
 
     return Response("ok", status_code=200)
 
