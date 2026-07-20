@@ -1,5 +1,5 @@
 {
-  "build": {
-    "buildCommand": "pip install -r requirements.txt && apt-get update && apt-get install -y libreoffice fonts-liberation fontconfig && rm -rf /var/lib/apt/lists/*"
+  "deploy": {
+    "startCommand": "uvicorn webhook:app --host 0.0.0.0 --port $PORT"
   }
 }
