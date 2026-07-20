@@ -11,4 +11,4 @@ COPY requirements.txt .
 RUN pip install -r requirements.txt
 
 COPY . .
-CMD uvicorn webhook:app --host 0.0.0.0 --port $PORT & streamlit run app.py --server.port 8501 --server.address 0.0.0.0 --server.headless true & wait
+CMD ["sh", "-c", "uvicorn webhook:app --host 0.0.0.0 --port $PORT & streamlit run app.py --server.port 8501 --server.address 0.0.0.0 --server.headless true & wait"]
