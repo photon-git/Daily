@@ -263,11 +263,17 @@ def render_elec_week_png(data: dict, output_path: str = None) -> str:
         tmp_pptx = os.path.join(tmpdir, "filled.pptx")
         fill_template(merged, tmp_pptx)
 
+        # 找 LibreOffice 可执行文件（不同系统命令名不同）
+        import shutil as _shutil
+        lo_cmd = (_shutil.which("libreoffice") or
+                  _shutil.which("soffice") or
+                  "/usr/bin/libreoffice")
+
         # LibreOffice 转 PNG
         result = subprocess.run(
-            ["libreoffice", "--headless", "--convert-to", "png",
+            [lo_cmd, "--headless", "--convert-to", "png",
              "--outdir", tmpdir, tmp_pptx],
-            capture_output=True, text=True, timeout=60
+            capture_output=True, text=True, timeout=120
         )
         print(result.stdout)
         if result.returncode != 0:

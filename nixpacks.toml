@@ -1,2 +1,2 @@
 [phases.setup]
-nixPkgs = ["libreoffice", "liberation_ttf"]
+aptPkgs = ["libreoffice", "fonts-liberation", "fontconfig"]
