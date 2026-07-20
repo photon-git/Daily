@@ -15,6 +15,8 @@ from weekly_parser       import parse_weekly_report
 from weekly_png_renderer import render_weekly_png
 from province_parser     import parse_xlsx
 from province_renderer   import render_province_png
+from elec_week_parser    import parse_elec_week
+from elec_week_renderer  import render_elec_week_png
 
 app = FastAPI()
 
@@ -84,9 +86,12 @@ def _cleanup_old_images(out_dir: str, keep: int = 3):
         except: pass
 
 def _is_weekly(text: str) -> bool:
-    """判断是否周报"""
     keywords = ["周报", "每周政策", "每周信息", "weekly"]
     return any(kw in text[:20] for kw in keywords)
+
+def _is_elec_week(text: str) -> bool:
+    keywords = ["采集电量", "售电量", "周电量", "电量周"]
+    return any(kw in text[:50] for kw in keywords)
 
 def _run_once(fn, *args, **kwargs):
     """执行一次，若失败重试一次，仍失败抛出异常"""
@@ -101,13 +106,24 @@ def _run_once(fn, *args, **kwargs):
 def process_in_background(text: str, chat_id: str, mode: str = "daily"):
     out_path = None
     weekly   = (mode == "weekly")
+    elec     = (mode == "elec_week")
     try:
         token   = get_token(weekly)
         out_dir = os.path.join(os.path.dirname(__file__), "output")
         os.makedirs(out_dir, exist_ok=True)
         ts = datetime.now().strftime('%Y%m%d%H%M%S')
 
-        if weekly:
+        if elec:
+            data     = parse_elec_week(text)
+            out_path = os.path.join(out_dir, f"elec_week_{ts}.png")
+            _run_once(render_elec_week_png, data, output_path=out_path)
+            image_key = upload_image(out_path, token)
+            if image_key:
+                send_message(chat_id, "image", {"image_key": image_key}, token)
+                os.remove(out_path)
+            else:
+                send_message(chat_id, "text", {"text": "❌ 图片上传失败"}, token)
+        elif weekly:
             data     = parse_weekly_report(text)
             out_path = os.path.join(out_dir, f"weekly_{ts}.png")
             paths    = _run_once(render_weekly_png, data, output_path=out_path)
@@ -318,8 +334,11 @@ async def _handle_webhook(request: Request, background_tasks: BackgroundTasks, m
         except:
             return Response("ok")
         if not text: return Response("ok")
-        # 自动识别电量周度数据
-        actual_mode = mode
+        # 自动识别类型
+        if _is_elec_week(text):
+            actual_mode = "elec_week"
+        else:
+            actual_mode = mode
         token = get_token(weekly=False)
         send_message(chat_id, "text", {"text": "⚙️ 正在解析并生成图片，请稍候..."}, token)
         background_tasks.add_task(process_in_background, text, chat_id, actual_mode)
