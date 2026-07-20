@@ -171,16 +171,7 @@ def fill_template(data: dict, out_pptx: str):
             t_left = etree.SubElement(r_left, f'{{{p_ns}}}t')
             t_left.text = '  ' + left_txt  # 两个空格作为左侧留白
 
-            # 右侧文字：用 fldType=right tab stop 实现右对齐
-            # 最简单方式：在 pPr 里加右 tabStop，然后插入 tab
-            # tabStop at 文本框宽度
-            tab_w_emu = shape.width
-            tabLst = etree.SubElement(pPr_el, f'{{{p_ns}}}tabLst')
-            tab_el = etree.SubElement(tabLst, f'{{{p_ns}}}tab')
-            tab_el.set('pos', str(int(tab_w_emu - PAD_EMU)))  # 右侧留白
-            tab_el.set('algn', 'r')
-
-            # tab 字符
+            # tab 字符（右对齐用 tab stop 实现）
             r_tab = etree.SubElement(p_el, f'{{{p_ns}}}r')
             if ref_rPr is not None:
                 r_tab.insert(0, deepcopy(ref_rPr))
@@ -238,10 +229,9 @@ def render_elec_week_png(data: dict, output_path: str = None) -> str:
     lo_fonts  = os.path.expanduser("~/.fonts")
     if os.path.isdir(fonts_dir) and not os.path.exists(os.path.join(lo_fonts, "msyh.ttf")):
         os.makedirs(lo_fonts, exist_ok=True)
-        import shutil as _sh
         for f in os.listdir(fonts_dir):
             if f.endswith((".ttf", ".otf")):
-                _sh.copy(os.path.join(fonts_dir, f), lo_fonts)
+                shutil.copy(os.path.join(fonts_dir, f), lo_fonts)
         os.system("fc-cache -f ~/.fonts 2>/dev/null")
     # 固定字段默认值（不从文字中解析，直接用模板里的值）
     defaults = {
@@ -263,17 +253,16 @@ def render_elec_week_png(data: dict, output_path: str = None) -> str:
         tmp_pptx = os.path.join(tmpdir, "filled.pptx")
         fill_template(merged, tmp_pptx)
 
-        # 找 LibreOffice 可执行文件（不同系统命令名不同）
-        import shutil as _shutil
-        lo_cmd = (_shutil.which("libreoffice") or
-                  _shutil.which("soffice") or
+        # 查找 LibreOffice 可执行文件
+        lo_cmd = (shutil.which("libreoffice") or
+                  shutil.which("soffice") or
                   "/usr/bin/libreoffice")
 
         # LibreOffice 转 PNG
         result = subprocess.run(
             [lo_cmd, "--headless", "--convert-to", "png",
              "--outdir", tmpdir, tmp_pptx],
-            capture_output=True, text=True, timeout=120
+            capture_output=True, text=True, timeout=60
         )
         print(result.stdout)
         if result.returncode != 0:
