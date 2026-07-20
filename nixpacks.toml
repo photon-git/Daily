@@ -1,2 +1,2 @@
 [phases.setup]
-aptPkgs = ["libreoffice", "fonts-liberation", "fontconfig"]
+cmds = ["apt-get update && apt-get install -y libreoffice fonts-liberation fontconfig && rm -rf /var/lib/apt/lists/*"]
