@@ -12,6 +12,10 @@ SYSTEM_PROMPT = """你是电力系统电量数据解析专家。
 从用户输入的任意格式文本中，只提取以下数据，输出严格JSON：
 
 字段说明：
+- week_range：本周日期范围（如"2026年6月29日-2026年7月5日"）
+- report_date：报送日期（如"2026年7月6日"）
+- month_range：月累计日期范围（如"7月1日-5日"）
+- year_range：年累计日期范围（如"1月1日-7月5日"）
 - week.collect：本周采集电量（亿千瓦时，保留两位小数，如"1490.34"）
 - week.collect_yoy：本周采集电量同比增速（如"-2.8%"）
 - week.sale：本周售电量（亿千瓦时，保留两位小数）
@@ -35,6 +39,10 @@ SYSTEM_PROMPT = """你是电力系统电量数据解析专家。
 
 输出格式：
 {
+  "week_range": "2026年6月29日-2026年7月5日",
+  "report_date": "2026年7月6日",
+  "month_range": "7月1日-5日",
+  "year_range": "1月1日-7月5日",
   "week":  {"collect": "1490.34", "collect_yoy": "-2.8%", "sale": "1376.47", "sale_yoy": "-2.6%"},
   "month": {"collect": "1073.01", "collect_yoy": "-5.0%", "sale": "990.93",  "sale_yoy": "-4.9%"},
   "year":  {"collect": "35296.88","collect_yoy": "4.4%",  "sale": "32532.54","sale_yoy": "4.4%"},
