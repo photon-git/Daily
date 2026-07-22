@@ -1,239 +1,139 @@
 """
 elec_week_renderer.py
-电量周度数据 PNG 渲染器
-方案：填充 PPT 模板 → LibreOffice 转 PNG，保证与模板完全一致
+电量周度数据 PNG 渲染器 —— 完全按 PPT XML 参数还原
+所有坐标/尺寸/颜色/字体均从 assets/电量周度数据_模板.pptx 直接读取
 """
 
 import os
-import re
-import shutil
-import subprocess
-import tempfile
+import numpy as np
+from PIL import Image, ImageDraw, ImageFont
 from datetime import datetime
-from copy import deepcopy
 
-from pptx import Presentation
-from pptx.util import Pt
-from lxml import etree
+_HERE     = os.path.dirname(os.path.abspath(__file__))
+ASSETS    = os.path.join(_HERE, "assets")
+FONTS_DIR = os.path.join(_HERE, "fonts")
+OUT_DIR   = os.path.join(_HERE, "output")
 
-_HERE        = os.path.dirname(os.path.abspath(__file__))
-TEMPLATE_PATH = os.path.join(_HERE, "assets", "电量周度数据_模板.pptx")
-OUT_DIR       = os.path.join(_HERE, "output")
+BG_PATH   = os.path.join(ASSETS, "bg.png")
+LOGO_PATH = os.path.join(ASSETS, "logo.png")
 
+FONT_R = os.path.join(FONTS_DIR, "msyh.ttf")
+FONT_B = os.path.join(FONTS_DIR, "msyh-b.ttf")
 
-def _set_cell_text(cell, text: str):
-    """替换单元格文字，保留原有第一个 run 的字体格式"""
-    tf = cell.text_frame
-    p_ns = 'http://schemas.openxmlformats.org/drawingml/2006/main'
-    txBody = tf._txBody
+# PPT 幻灯片宽度 508mm → 输出宽 1080px
+W     = 1080
+SCALE = W / 508.0
 
-    # 取第一个段落第一个 run 的格式
-    first_para = tf.paragraphs[0]
-    ref_rPr = None
-    if first_para.runs:
-        ref_rPr = first_para.runs[0]._r.find(f'{{{p_ns}}}rPr')
+def mm(v): return int(round(v * SCALE))
 
-    # 清空所有段落内容（保留段落元素本身）
-    for p_el in txBody.findall(f'{{{p_ns}}}p'):
-        for r_el in p_el.findall(f'{{{p_ns}}}r'):
-            p_el.remove(r_el)
+# ── PPT XML 精确坐标 (mm) ─────────────────────────────────────────────────────
+# 图片 8  (logo)       x=-4.83  y=0.06   w=69.53  h=57.68
+LOGO_X = mm(-4.83); LOGO_Y = mm(0.06);  LOGO_W = mm(69.53); LOGO_H = mm(57.68)
+# TextBox 4 (logo文字) x=55.61  y=15.50  w=147.07 h=39.47
+LTEXT_X= mm(55.61); LTEXT_Y= mm(8.00);  LTEXT_W= mm(147.07); LTEXT_H= mm(39.47)
+# 矩形 26  (标题背景)  x=1.34   y=45.54  w=508    h=51.84  noFill+阴影
+TITLE_X= mm(1.34);  TITLE_Y= mm(45.54); TITLE_W= mm(508.00); TITLE_H= mm(51.84)
+# TextBox 3 (日期范围) x=1.34   y=95.62  w=508    h=19.63
+DATE_X = mm(1.34);  DATE_Y = mm(95.62); DATE_W = mm(508.00); DATE_H = mm(19.63)
+# 圆角矩形 2 (地区栏)  x=11.56  y=120.09 w=486.59 h=40.20
+META_X = mm(11.56); META_Y = mm(120.09);META_W = mm(486.59); META_H = mm(40.20)
+# TextBox 4 (地区文字) x=11.47  y=130.74 w=486.67 h=27.02
+MTEXT_X= mm(11.47); MTEXT_Y= mm(130.74);MTEXT_W= mm(486.67); MTEXT_H= mm(27.02)
+# Table 4              x=9.42   y=167.32 w=489.41 h=604.65
+TABLE_X= mm(9.42);  TABLE_Y= mm(167.32);TABLE_W= mm(489.41); TABLE_H= mm(604.65)
+# TextBox 3 (备注)     x=12.28  y=773.29
+NOTES_X= mm(12.28); NOTES_Y= mm(773.29)
 
-    # 只写第一个段落
-    p_el = txBody.findall(f'{{{p_ns}}}p')[0]
-    r_el = etree.SubElement(p_el, f'{{{p_ns}}}r')
-    if ref_rPr is not None:
-        r_el.insert(0, deepcopy(ref_rPr))
-    t_el = etree.SubElement(r_el, f'{{{p_ns}}}t')
-    t_el.text = text
+# ── 表格列宽/行高 (mm，直接来自 PPT XML) ──────────────────────────────────────
+COL_MM = [132.29, 172.74, 94.84, 89.54]
+ROW_MM = [62.22, 90.43, 90.45, 90.35, 90.40, 90.40, 90.40]
 
-
-def _set_cell_two_lines(cell, line1: str, line2: str):
-    """
-    设置单元格两行文字：
-    - 第一行：line1（居中）
-    - 第二行：line2（居中，自动缩小字号确保单行）
-    两行都保留原始 rPr 格式
-    """
-    tf = cell.text_frame
-    p_ns = 'http://schemas.openxmlformats.org/drawingml/2006/main'
-    txBody = tf._txBody
-
-    # 取第一个段落第一个 run 的格式作为模板
-    first_para = tf.paragraphs[0]
-    ref_rPr = None
-    if first_para.runs:
-        ref_rPr = first_para.runs[0]._r.find(f'{{{p_ns}}}rPr')
-
-    # 取第一个段落的 pPr（对齐等段落格式）作为模板
-    ref_pPr = first_para._p.find(f'{{{p_ns}}}pPr')
-
-    # 清空所有段落
-    for p_el in txBody.findall(f'{{{p_ns}}}p'):
-        txBody.remove(p_el)
-
-    def _make_para(text, rPr_template, pPr_template, font_size_pt=None):
-        p_el = etree.SubElement(txBody, f'{{{p_ns}}}p')
-        if pPr_template is not None:
-            p_el.insert(0, deepcopy(pPr_template))
-        r_el = etree.SubElement(p_el, f'{{{p_ns}}}r')
-        rPr = deepcopy(rPr_template) if rPr_template is not None else etree.Element(f'{{{p_ns}}}rPr')
-        # 如果需要缩小字号
-        if font_size_pt is not None:
-            rPr.set('sz', str(int(font_size_pt * 100)))
-        r_el.insert(0, rPr)
-        t_el = etree.SubElement(r_el, f'{{{p_ns}}}t')
-        t_el.text = text
-        return p_el
-
-    _make_para(line1, ref_rPr, ref_pPr)
-    # 第二行日期：字号缩小到 32pt（原始 40pt），确保长日期单行显示
-    _make_para(line2, ref_rPr, ref_pPr, font_size_pt=32)
+# ── 颜色 (从 PPT XML srgbClr 读取) ───────────────────────────────────────────
+C_HEADER  = (0x0F, 0x79, 0x7B)   # 表头背景 #0F797B
+C_R1_LEFT = (0xF5, 0xFF, 0xFF)   # row1 周期列背景
+C_R2_LEFT = (0xEB, 0xFF, 0xFA)   # row2 周期列背景
+C_R1_DATA = (0xF4, 0xFF, 0xFF)   # 采集行数据列
+C_R2_DATA = (0xCB, 0xEA, 0xF2)   # 售电行数据列
+C_M1_DATA = (0xF5, 0xFF, 0xFF)
+C_M2_DATA = (0xCB, 0xEA, 0xF1)
+C_Y1_DATA = (0xF5, 0xFF, 0xFE)
+C_Y2_DATA = (0xCB, 0xEA, 0xF2)
+C_TEXT    = (0x10, 0x56, 0x50)   # 主文字色 #105650
+C_WHITE   = (255, 255, 255)
+C_LOGO_TXT= (0x59, 0x59, 0x5A)   # logo 文字 #59595A
+# 圆角矩形渐变: accent1(#4F81BD) lumMod=20%+lumOff=80% → #DBE5F1, 终止 bg1=white
+C_META_L  = (219, 229, 241)       # #DBE5F1
+C_META_R  = (255, 255, 255)
+C_GRID    = (217, 217, 217)       # 表格内分隔线 bg1*85% = #D9D9D9
 
 
-def _set_textbox_text(shape, text: str):
-    """替换文本框整段文字，保留格式"""
-    tf = shape.text_frame
-    p_ns = 'http://schemas.openxmlformats.org/drawingml/2006/main'
-    txBody = tf._txBody
-    paras = txBody.findall(f'{{{p_ns}}}p')
-    if not paras:
-        return
-    first_p = paras[0]
-    runs = first_p.findall(f'{{{p_ns}}}r')
-    ref_rPr = None
-    if runs:
-        ref_rPr = runs[0].find(f'{{{p_ns}}}rPr')
-        for r in runs:
-            first_p.remove(r)
+# ── 字体 ─────────────────────────────────────────────────────────────────────
+def _font(size, bold=False):
+    path = FONT_B if bold else FONT_R
+    for p in [path, FONT_R, FONT_B]:
+        if os.path.exists(p):
+            try: return ImageFont.truetype(p, size)
+            except: pass
+    return ImageFont.load_default()
 
-    r_el = etree.SubElement(first_p, f'{{{p_ns}}}r')
-    if ref_rPr is not None:
-        r_el.insert(0, deepcopy(ref_rPr))
-    t_el = etree.SubElement(r_el, f'{{{p_ns}}}t')
-    t_el.text = text
+def pt(v):
+    """PPT pt → px，基于 SCALE"""
+    return max(8, int(round(v * SCALE * 25.4 / 72)))
 
 
-def fill_template(data: dict, out_pptx: str):
-    prs  = Presentation(TEMPLATE_PATH)
-    slide = prs.slides[0]
+# ── 绘图辅助 ──────────────────────────────────────────────────────────────────
+def _tw(draw, text, font):
+    bb = draw.textbbox((0, 0), text, font=font)
+    return bb[2] - bb[0]
 
-    week_range  = data.get("week_range",  "")
-    report_date = data.get("report_date", "")
-    region      = data.get("region",      "公司经营区")
-    month_range = data.get("month_range", "")
-    year_range  = data.get("year_range",  "")
-    notes_text  = data.get("notes",       "")
-    week  = data.get("week",  {})
-    month = data.get("month", {})
-    year  = data.get("year",  {})
+def _th(draw, text, font):
+    bb = draw.textbbox((0, 0), text, font=font)
+    return bb[3] - bb[1]
 
-    for shape in slide.shapes:
-        name = shape.name
+def _center(draw, x, y, w, h, text, font, color):
+    bb = draw.textbbox((0, 0), text, font=font)
+    tx = x + (w - (bb[2]-bb[0])) // 2 - bb[0]
+    ty = y + (h - (bb[3]-bb[1])) // 2 - bb[1]
+    draw.text((tx, ty), text, font=font, fill=color)
 
-        # 日期范围 TextBox3（top≈95mm）
-        if name == "TextBox 3" and shape.top / 914400 * 25.4 > 90:
-            _set_textbox_text(shape, f"({week_range})")
-
-        # 地区/报送 TextBox4（top≈130mm）
-        if name == "TextBox 4" and shape.top / 914400 * 25.4 > 125 and shape.top / 914400 * 25.4 < 145:
-            p_ns = 'http://schemas.openxmlformats.org/drawingml/2006/main'
-            tf = shape.text_frame
-            txBody = tf._txBody
-            paras = txBody.findall(f'{{{p_ns}}}p')
-            ref_rPr = None
-            if paras and tf.paragraphs[0].runs:
-                ref_rPr = tf.paragraphs[0].runs[0]._r.find(f'{{{p_ns}}}rPr')
-            for p_el in paras:
-                txBody.remove(p_el)
-
-            left_txt  = f"地区范围：{region}"
-            right_txt = f"报送日期：{report_date}"
-
-            # 一个段落，左侧 run + 右侧 run，段落对齐用 'thaiDist' 无法实现
-            # 最终方案：写两行，第一行左对齐，第二行右对齐，然后把文本框高度缩到只有一行
-            # 但更简单：段落左对齐写 left_txt，用 tab + 右缩进写 right_txt
-            # 实际最稳定：一段，left + 大量空格 + right，空格用 &nbsp; 等宽字符
-            PAD_EMU = int(8 * 36000)  # 8mm 两侧留白
-            p_el = etree.SubElement(txBody, f'{{{p_ns}}}p')
-            pPr_el = etree.SubElement(p_el, f'{{{p_ns}}}pPr')
-            pPr_el.set('algn', 'l')
-
-            tab_w_emu = shape.width
-            tabLst = etree.SubElement(pPr_el, f'{{{p_ns}}}tabLst')
-            tab_el = etree.SubElement(tabLst, f'{{{p_ns}}}tab')
-            tab_el.set('pos', str(int(tab_w_emu - PAD_EMU)))  # 右侧留白
-            tab_el.set('algn', 'r')
-
-            # 左侧文字（前加空格留白）
-            r_left = etree.SubElement(p_el, f'{{{p_ns}}}r')
-            if ref_rPr is not None:
-                r_left.insert(0, deepcopy(ref_rPr))
-            t_left = etree.SubElement(r_left, f'{{{p_ns}}}t')
-            t_left.text = '  ' + left_txt  # 两个空格作为左侧留白
-
-            # tab 字符（右对齐用 tab stop 实现）
-            r_tab = etree.SubElement(p_el, f'{{{p_ns}}}r')
-            if ref_rPr is not None:
-                r_tab.insert(0, deepcopy(ref_rPr))
-            t_tab = etree.SubElement(r_tab, f'{{{p_ns}}}t')
-            t_tab.text = '\t'
-
-            # 右侧文字
-            r_right = etree.SubElement(p_el, f'{{{p_ns}}}r')
-            if ref_rPr is not None:
-                r_right.insert(0, deepcopy(ref_rPr))
-            t_right = etree.SubElement(r_right, f'{{{p_ns}}}t')
-            t_right.text = right_txt
-
-        # 备注 TextBox3（top≈773mm）
-        if name == "TextBox 3" and shape.top / 914400 * 25.4 > 760:
-            _set_textbox_text(shape, f"备注：{notes_text}")
-
-        # 表格
-        if hasattr(shape, "table"):
-            tbl = shape.table
-
-            # 周期列：名称+日期各一行，日期字号缩小确保单行
-            if month_range:
-                _set_cell_two_lines(tbl.cell(3, 0), "月累计电量", f"({month_range})")
+def _wrap_center(draw, x, y, w, h, text, font, color, ls=None):
+    """自动折行，整体居中。ls=None 时行距=字高*1.5（PPT spcPct=150%）"""
+    lines, cur = [], ""
+    for ch in text:
+        if ch == '\n':
+            lines.append(cur); cur = ""
+        else:
+            if _tw(draw, cur+ch, font) > w - mm(2.5)*2:
+                lines.append(cur); cur = ch
             else:
-                _set_cell_text(tbl.cell(3, 0), "月累计电量")
+                cur += ch
+    if cur: lines.append(cur)
+    char_h = _th(draw, "测", font)
+    lh = ls if ls is not None else int(char_h * 1.5)
+    total = char_h + (len(lines)-1)*lh
+    sy = y + (h - total) // 2
+    for i, line in enumerate(lines):
+        lw = _tw(draw, line, font)
+        draw.text((x + (w-lw)//2, sy + i*lh), line, font=font, fill=color)
 
-            if year_range:
-                _set_cell_two_lines(tbl.cell(5, 0), "年累计电量", f"({year_range})")
-            else:
-                _set_cell_text(tbl.cell(5, 0), "年累计电量")
-
-            # 数值/同比
-            _set_cell_text(tbl.cell(1, 2), week.get("collect", ""))
-            _set_cell_text(tbl.cell(1, 3), week.get("collect_yoy", ""))
-            _set_cell_text(tbl.cell(2, 2), week.get("sale", ""))
-            _set_cell_text(tbl.cell(2, 3), week.get("sale_yoy", ""))
-
-            _set_cell_text(tbl.cell(3, 2), month.get("collect", ""))
-            _set_cell_text(tbl.cell(3, 3), month.get("collect_yoy", ""))
-            _set_cell_text(tbl.cell(4, 2), month.get("sale", ""))
-            _set_cell_text(tbl.cell(4, 3), month.get("sale_yoy", ""))
-
-            _set_cell_text(tbl.cell(5, 2), year.get("collect", ""))
-            _set_cell_text(tbl.cell(5, 3), year.get("collect_yoy", ""))
-            _set_cell_text(tbl.cell(6, 2), year.get("sale", ""))
-            _set_cell_text(tbl.cell(6, 3), year.get("sale_yoy", ""))
-
-    prs.save(out_pptx)
+def _gradient_rect_rounded(img, x, y, w, h, c_top, c_bottom, radius):
+    # 先画渐变
+    arr = np.zeros((h, w, 3), dtype=np.uint8)
+    for i in range(h):
+        t = i / max(h-1, 1)
+        arr[i, :, 0] = int(c_bottom[0]*(1-t) + c_top[0]*t)
+        arr[i, :, 1] = int(c_bottom[1]*(1-t) + c_top[1]*t)
+        arr[i, :, 2] = int(c_bottom[2]*(1-t) + c_top[2]*t)
+    grad = Image.fromarray(arr, "RGB")
+    # 圆角蒙版
+    mask = Image.new("L", (w, h), 0)
+    md = ImageDraw.Draw(mask)
+    md.rounded_rectangle([0, 0, w-1, h-1], radius=radius, fill=255)
+    img.paste(grad, (x, y), mask)
 
 
+# ── 主渲染函数 ────────────────────────────────────────────────────────────────
 def render_elec_week_png(data: dict, output_path: str = None) -> str:
-    # 确保 LibreOffice 能找到微软雅黑字体
-    fonts_dir = os.path.join(_HERE, "fonts")
-    lo_fonts  = os.path.expanduser("~/.fonts")
-    if os.path.isdir(fonts_dir) and not os.path.exists(os.path.join(lo_fonts, "msyh.ttf")):
-        os.makedirs(lo_fonts, exist_ok=True)
-        for f in os.listdir(fonts_dir):
-            if f.endswith((".ttf", ".otf")):
-                shutil.copy(os.path.join(fonts_dir, f), lo_fonts)
-        os.system("fc-cache -f ~/.fonts 2>/dev/null")
-    # 固定字段默认值（不从文字中解析，直接用模板里的值）
     defaults = {
         "week_range":  "",
         "report_date": "",
@@ -241,46 +141,196 @@ def render_elec_week_png(data: dict, output_path: str = None) -> str:
         "month_range": "",
         "year_range":  "",
     }
-    # parser 只返回 week/month/year/notes，合并固定字段
-    merged = {**defaults, **data}
+    data = {**defaults, **data}
+
+    # PPT 字体大小（pt） → px
+    # logo文字: 36pt bold  标题: 72pt bold  其余: 40pt  备注: 32pt
+    f_logo   = _font(pt(36), bold=True)
+    f_title  = _font(pt(72), bold=True)
+    f_date   = _font(pt(40), bold=False)
+    f_meta   = _font(pt(40), bold=True)
+    f_hdr    = _font(pt(40), bold=True)
+    f_period = _font(pt(40), bold=True)
+    f_label  = _font(pt(40), bold=False)
+    f_value  = _font(pt(40), bold=False)
+    f_yoy    = _font(pt(40), bold=False)
+    f_notes  = _font(pt(32), bold=False)
+
+    # 预计算备注高度
+    notes_text = data.get("notes", "")
+    tmp_draw = ImageDraw.Draw(Image.new("RGB", (W, 50)))
+    notes_lines = []
+    if notes_text:
+        buf = "备注：" + notes_text
+        cur = ""
+        for ch in buf:
+            if _tw(tmp_draw, cur+ch, f_notes) > TABLE_W - mm(2):
+                notes_lines.append(cur); cur = ch
+            else:
+                cur += ch
+        if cur: notes_lines.append(cur)
+    # 备注颜色: schemeClr bg1 lumMod=50% → white*50% = #808080
+    C_NOTES = (128, 128, 128)
+    nl_h = _th(tmp_draw, "测", f_notes)  # spcPct=100%，无额外行距
+    notes_block_h = len(notes_lines) * nl_h if notes_lines else 0
+
+    total_h = NOTES_Y + notes_block_h + mm(18)
+
+    # 画布 + 背景
+    img = Image.new("RGB", (W, total_h), (240, 248, 252))
+    if os.path.exists(BG_PATH):
+        bg = Image.open(BG_PATH).convert("RGB").resize((W, total_h), Image.LANCZOS)
+        img.paste(bg, (0, 0))
+    draw = ImageDraw.Draw(img)
+
+    # ── Logo 图片 (图片 8, x=-4.83 y=0.06) ────────────────────────────────
+    if os.path.exists(LOGO_PATH):
+        logo = Image.open(LOGO_PATH).convert("RGBA").resize((LOGO_W, LOGO_H), Image.LANCZOS)
+        img.paste(logo, (max(0, LOGO_X), LOGO_Y), logo)
+
+    # ── Logo 文字 (TextBox 4, 两行, sz=36pt bold, color=#59595A) ──────────
+    # PPT: "用电需求分析预测" 第一行, "（ 全国用电监测分析 ）" 第二行, spcAft=1.2pt
+    line_gap = pt(1.2)  # spcAft=1.2pt
+    lh1 = _th(draw, "测", f_logo)
+    lh2 = _th(draw, "测", f_logo)
+    total_logo_txt = lh1 + line_gap + lh2
+    ly = LTEXT_Y + (LTEXT_H - total_logo_txt) // 2
+    for txt, dy in [("用电需求分析预测", 0), ("（ 全国用电监测分析 ）", lh1 + line_gap)]:
+        lw = _tw(draw, txt, f_logo)
+        draw.text((LTEXT_X + (LTEXT_W - lw)//2, ly + dy), txt, font=f_logo, fill=C_LOGO_TXT)
+
+    # ── 主标题 (矩形 26, sz=72pt bold, tx1=黑色, outerShdw 下方 40%透明黑) ──
+    # 用 RGBA 图层绘制阴影再合成
+    shadow_layer = Image.new("RGBA", (W, total_h), (0, 0, 0, 0))
+    sd = ImageDraw.Draw(shadow_layer)
+    _center(sd, TITLE_X+1, TITLE_Y+2, TITLE_W, TITLE_H, "电量周度数据", f_title, (0, 0, 0, 102))
+    img = img.convert("RGBA")
+    img = Image.alpha_composite(img, shadow_layer)
+    img = img.convert("RGB")
+    draw = ImageDraw.Draw(img)
+    _center(draw, TITLE_X, TITLE_Y, TITLE_W, TITLE_H, "电量周度数据", f_title, (0, 0, 0))
+
+    # ── 日期范围 (TextBox 3, sz=40pt, 非粗体, 英文括号, align=CENTER, 黑色)
+    wr = data.get("week_range", "")
+    _center(draw, DATE_X, DATE_Y, DATE_W, DATE_H,
+            f"({wr})" if wr else "", f_date, (0, 0, 0))
+
+    # ── 地区栏渐变圆角矩形 (圆角矩形 2, gradient 从下#DBE5F1→上white, radius=3mm)
+    # 圆角半径：PPT 默认 adj=16667/100000，短边=META_H，radius≈16.7%×h
+    meta_radius = int(META_H * 16667 / 100000)
+    _gradient_rect_rounded(img, META_X, META_Y, META_W, META_H, C_META_L, C_META_R, radius=meta_radius)
+    draw = ImageDraw.Draw(img)
+
+    # ── 地区文字 (TextBox 4, x=11.47 y=130.74 w=486.67 h=27.02, sz=40pt bold, 黑色)
+    # 文字在 TextBox 内垂直居中，左右各留 5mm padding
+    region     = data.get("region", "公司经营区")
+    report_date= data.get("report_date", "")
+    mty = MTEXT_Y + (MTEXT_H - _th(draw, "测", f_meta)) // 2 - mm(7.5)
+    draw.text((MTEXT_X + mm(20), mty), f"地区范围：{region}", font=f_meta, fill=(0, 0, 0))
+    rw_txt = f"报送日期：{report_date}"
+    draw.text((MTEXT_X + MTEXT_W - mm(20) - _tw(draw, rw_txt, f_meta), mty),
+              rw_txt, font=f_meta, fill=(0, 0, 0))
+
+    # ── 表格 ─────────────────────────────────────────────────────────────────
+    COL_W = [mm(v) for v in COL_MM]
+    COL_W[-1] = TABLE_W - sum(COL_W[:-1])
+    ROW_H = [mm(v) for v in ROW_MM]
+    ROW_H[-1] = TABLE_H - sum(ROW_H[:-1])
+
+    def cx(c): return TABLE_X + sum(COL_W[:c])
+    def ry(r): return TABLE_Y + sum(ROW_H[:r])
+
+    # 先铺白色底，防止背景图透色
+    draw.rectangle([TABLE_X, TABLE_Y, TABLE_X+TABLE_W, TABLE_Y+TABLE_H], fill=C_WHITE)
+
+    # 表头 (fill=#0F797B, text=white, sz=40pt bold, lnSpc=150%)
+    draw.rectangle([TABLE_X, ry(0), TABLE_X+TABLE_W, ry(1)], fill=C_HEADER)
+    for c, hdr in enumerate(["周期", "口径", "数值\n(亿千瓦时)", "同比\n增速"]):
+        _wrap_center(draw, cx(c), ry(0), COL_W[c], ROW_H[0], hdr, f_hdr, C_WHITE)
+
+    sections = [
+        {"period": "周电量",     "date": "",
+         "d": data.get("week",  {}), "r": (1, 2), "c1d": C_R1_DATA, "c2d": C_R2_DATA},
+        {"period": "月累计电量", "date": data.get("month_range", ""),
+         "d": data.get("month", {}), "r": (3, 4), "c1d": C_M1_DATA, "c2d": C_M2_DATA},
+        {"period": "年累计电量", "date": data.get("year_range",  ""),
+         "d": data.get("year",  {}), "r": (5, 6), "c1d": C_Y1_DATA, "c2d": C_Y2_DATA},
+    ]
+
+    for sec in sections:
+        r1, r2 = sec["r"]
+        sh = ROW_H[r1] + ROW_H[r2]   # 合并行高
+
+        # 周期列背景（整体一个颜色 F5FFFF）
+        draw.rectangle([cx(0), ry(r1), cx(1), ry(r1)+sh], fill=C_R1_LEFT)
+
+        # 采集行：数值列 + 同比列
+        for idx, key in enumerate(["collect", "collect_yoy"]):
+            col = idx + 2
+            val = sec["d"].get(key, "")
+            draw.rectangle([cx(col), ry(r1), cx(col+1), ry(r2)], fill=sec["c1d"])
+            font = f_value if col == 2 else f_yoy
+            _center(draw, cx(col), ry(r1), COL_W[col], ROW_H[r1], val, font, C_TEXT)
+
+        # 采集行：口径列 (sz=40pt, align=CENTER, 折行)
+        draw.rectangle([cx(1), ry(r1), cx(2), ry(r2)], fill=sec["c1d"])
+        _wrap_center(draw, cx(1), ry(r1), COL_W[1], ROW_H[r1],
+                     "采集电量（含采集覆盖的分布式光伏和自备电厂自发自用电量）",
+                     f_label, C_TEXT)
+
+        # 售电行：数值列 + 同比列
+        for idx, key in enumerate(["sale", "sale_yoy"]):
+            col = idx + 2
+            val = sec["d"].get(key, "")
+            draw.rectangle([cx(col), ry(r2), cx(col+1), ry(r2)+ROW_H[r2]], fill=sec["c2d"])
+            font = f_value if col == 2 else f_yoy
+            _center(draw, cx(col), ry(r2), COL_W[col], ROW_H[r2], val, font, C_TEXT)
+
+        # 售电行：口径列
+        draw.rectangle([cx(1), ry(r2), cx(2), ry(r2)+ROW_H[r2]], fill=sec["c2d"])
+        _wrap_center(draw, cx(1), ry(r2), COL_W[1], ROW_H[r2],
+                     "售电量（营销口径）", f_label, C_TEXT)
+
+        # 周期文字（最后绘制）PPT: 两段 sz=40pt bold, lnSpc=150%, 整体居中
+        pt_text   = sec["period"]
+        date_text = f"({sec['date']})" if sec["date"] else ""
+        char_h = _th(draw, "测", f_period)
+        lh150  = int(char_h * 1.5)
+        if date_text:
+            total_txt = char_h + lh150  # 两行：第一行字高 + 150%间距到第二行起点
+            sy = ry(r1) + (sh - total_txt) // 2
+            for ti, txt in enumerate([pt_text, date_text]):
+                tw = _tw(draw, txt, f_period)
+                draw.text((cx(0) + (COL_W[0]-tw)//2, sy + ti*lh150), txt, font=f_period, fill=C_TEXT)
+        else:
+            _wrap_center(draw, cx(0), ry(r1), COL_W[0], sh, pt_text, f_period, C_TEXT)
+
+        # 采集/售电分隔线
+        draw.line([cx(1), ry(r2), cx(4), ry(r2)], fill=C_GRID, width=1)
+
+    # 表格外框 + 列线 + 段间分隔线（PPT XML 所有边框均为 bg1*85%=#D9D9D9）
+    draw.rectangle([TABLE_X, TABLE_Y, TABLE_X+TABLE_W, TABLE_Y+TABLE_H],
+                   outline=C_GRID, width=1)
+    for c in [1, 2, 3]:
+        draw.line([cx(c), TABLE_Y, cx(c), TABLE_Y+TABLE_H], fill=C_GRID, width=1)
+    for r in [1, 3, 5]:
+        draw.line([TABLE_X, ry(r), TABLE_X+TABLE_W, ry(r)], fill=C_GRID, width=1)
+
+    # ── 备注 (TextBox 3, sz=32pt, align=LEFT) ────────────────────────────────
+    ny = NOTES_Y
+    for line in notes_lines:
+        draw.text((NOTES_X, ny), line, font=f_notes, fill=C_NOTES)
+        ny += nl_h
+
+    # 裁剪到实际高度
+    final_h = ny + mm(12)
+    img = img.crop((0, 0, W, final_h))
 
     os.makedirs(OUT_DIR, exist_ok=True)
     if not output_path:
-        ts = datetime.now().strftime('%Y-%m-%d')
-        output_path = os.path.join(OUT_DIR, f"elec_week_{ts}.png")
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        tmp_pptx = os.path.join(tmpdir, "filled.pptx")
-        fill_template(merged, tmp_pptx)
-
-        # 查找 LibreOffice 可执行文件
-        lo_cmd = (shutil.which("libreoffice") or
-                  shutil.which("soffice") or
-                  "/usr/bin/libreoffice")
-
-        # LibreOffice 转 PNG
-        result = subprocess.run(
-            [lo_cmd, "--headless", "--convert-to", "png",
-             "--outdir", tmpdir, tmp_pptx],
-            capture_output=True, text=True, timeout=60
-        )
-        print(result.stdout)
-        if result.returncode != 0:
-            print(result.stderr)
-            raise RuntimeError(f"LibreOffice 转换失败: {result.stderr}")
-
-        # LibreOffice 输出文件名是 filled.png
-        tmp_png = os.path.join(tmpdir, "filled.png")
-        if not os.path.exists(tmp_png):
-            # 找一下实际输出
-            pngs = [f for f in os.listdir(tmpdir) if f.endswith(".png")]
-            if not pngs:
-                raise RuntimeError(f"未找到输出 PNG，tmpdir内容: {os.listdir(tmpdir)}")
-            tmp_png = os.path.join(tmpdir, pngs[0])
-
-        shutil.copy(tmp_png, output_path)
-
-    print(f"✅ 已生成：{output_path}")
+        output_path = os.path.join(OUT_DIR, f"elec_week_{datetime.now().strftime('%Y-%m-%d')}.png")
+    img.save(output_path, "PNG")
+    print(f"✅ 已生成：{output_path}  ({W}×{final_h}px)")
     return output_path
 
 
@@ -291,9 +341,11 @@ if __name__ == "__main__":
         "region":      "公司经营区",
         "month_range": "7月1日-5日",
         "year_range":  "1月1日-7月5日",
-        "week":  {"collect":"1490.34","collect_yoy":"-2.8%","sale":"1376.47","sale_yoy":"-2.6%"},
-        "month": {"collect":"1073.01","collect_yoy":"-5.0%","sale":"990.93", "sale_yoy":"-4.9%"},
-        "year":  {"collect":"35296.88","collect_yoy":"4.4%","sale":"32532.54","sale_yoy":"4.4%"},
-        "notes": "一是本周电量负增长，主要受江浙等地降雨天气影响，平均最高气温较同期低4.8℃，居民用电量同比下降15.4%。二是周采集电量增速低于售电量增速，主要由于江苏、浙江、湖南、山东、上海、安徽等省份连续阴雨天气，分布式光伏出力下降，自用电量减少。",
+        "week":  {"collect": "1490.34", "collect_yoy": "-2.8%", "sale": "1376.47", "sale_yoy": "-2.6%"},
+        "month": {"collect": "1073.01", "collect_yoy": "-5.0%", "sale": "990.93",  "sale_yoy": "-4.9%"},
+        "year":  {"collect": "35296.88","collect_yoy": "4.4%",  "sale": "32532.54","sale_yoy": "4.4%"},
+        "notes": "一是本周电量负增长，主要受江浙等地降雨天气影响，平均最高气温较同期低4.8℃，居民用电量同比下降15.4%。"
+                 "二是周采集电量增速低于售电量增速，主要由于江苏、浙江、湖南、山东、上海、安徽等省份连续阴雨天气，"
+                 "分布式光伏出力下降，自用电量减少。",
     }
     render_elec_week_png(MOCK, output_path="output/elec_week_test.png")
