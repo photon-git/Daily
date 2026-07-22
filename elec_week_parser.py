@@ -9,16 +9,16 @@ from openai import OpenAI
 
 SYSTEM_PROMPT = """你是电力系统电量数据解析专家。
 
-从用户输入的任意格式文本中，只提取以下数据，输出严格JSON：
+从用户输入的任意格式文本中，提取并推断以下数据，输出严格JSON：
 
 字段说明：
-- week_range：本周日期范围（如"2026年6月29日-2026年7月5日"）
-- report_date：报送日期（如"2026年7月6日"）
-- month_range：月累计日期范围（如"7月1日-5日"）
-- year_range：年累计日期范围（如"1月1日-7月5日"）
-- week.collect：本周采集电量（亿千瓦时，保留两位小数，如"1490.34"）
+- week_range：本周日期范围，补全年份（如"2026年7月7日-2026年7月13日"）
+- month_range：月累计日期范围（如"7月1日-13日"）
+- year_range：年累计日期范围（如"1月1日-7月13日"）
+- report_date：报送日期，若未明确则推断为本周结束日期的次日（如"2026年7月14日"）
+- week.collect：本周采集电量（亿千瓦时，保留两位小数）
 - week.collect_yoy：本周采集电量同比增速（如"-2.8%"）
-- week.sale：本周售电量（亿千瓦时，保留两位小数）
+- week.sale：本周售电量
 - week.sale_yoy：本周售电量同比增速
 - month.collect：月累计采集电量
 - month.collect_yoy：月累计采集电量同比
@@ -33,20 +33,21 @@ SYSTEM_PROMPT = """你是电力系统电量数据解析专家。
 注意：
 - 数值只保留数字和小数点，不含单位
 - 同比格式统一为"x.x%"或"-x.x%"
-- 找不到的字段填""
+- 日期尽量从文本推断，找不到才填""
+- 年份若未明确写出，根据上下文推断当前年份
 
 只输出JSON，不要任何解释。
 
 输出格式：
 {
-  "week_range": "2026年6月29日-2026年7月5日",
-  "report_date": "2026年7月6日",
-  "month_range": "7月1日-5日",
-  "year_range": "1月1日-7月5日",
-  "week":  {"collect": "1490.34", "collect_yoy": "-2.8%", "sale": "1376.47", "sale_yoy": "-2.6%"},
-  "month": {"collect": "1073.01", "collect_yoy": "-5.0%", "sale": "990.93",  "sale_yoy": "-4.9%"},
-  "year":  {"collect": "35296.88","collect_yoy": "4.4%",  "sale": "32532.54","sale_yoy": "4.4%"},
-  "notes": "一是本周电量负增长..."
+  "week_range": "2026年7月7日-2026年7月13日",
+  "report_date": "2026年7月14日",
+  "month_range": "7月1日-13日",
+  "year_range": "1月1日-7月13日",
+  "week":  {"collect": "1523.45", "collect_yoy": "3.2%",  "sale": "1408.76", "sale_yoy": "3.0%"},
+  "month": {"collect": "2596.46", "collect_yoy": "-1.2%", "sale": "2399.69", "sale_yoy": "-1.1%"},
+  "year":  {"collect": "36820.33","collect_yoy": "4.6%",  "sale": "33941.30","sale_yoy": "4.5%"},
+  "notes": "一是本周气温回升..."
 }"""
 
 
