@@ -14,8 +14,8 @@ ASSETS    = os.path.join(_HERE, "assets")
 FONTS_DIR = os.path.join(_HERE, "fonts")
 OUT_DIR   = os.path.join(_HERE, "output")
 
-BG_PATH   = os.path.join(ASSETS, "bg.png")
-LOGO_PATH = os.path.join(ASSETS, "logo.png")
+BG_PATH   = os.path.join(ASSETS, "elec_week_bg.png")
+LOGO_PATH = os.path.join(ASSETS, "elec_week_logo.png")
 
 FONT_R = os.path.join(FONTS_DIR, "msyh.ttf")
 FONT_B = os.path.join(FONTS_DIR, "msyh-b.ttf")
