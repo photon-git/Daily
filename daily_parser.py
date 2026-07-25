@@ -62,7 +62,7 @@ def parse_daily_report(raw_text: str) -> dict:
         base_url="https://api.deepseek.com",
     )
     response = client.chat.completions.create(
-        model="deepseek-chat",
+        model="deepseek-v4-pro",
         max_tokens=1500,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
