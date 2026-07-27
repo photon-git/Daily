@@ -81,8 +81,21 @@ def parse_weekly_docx(docx_path: str) -> dict:
                 current_item["source"] = source_match.group(1)
                 full_text = full_text[:source_match.start()].strip()
 
-            # 按 run 提取加粗信息
-            runs = [(run.text, bool(run.bold)) for run in para.runs if run.text]
+            # 按 run 提取加粗信息，上标加 ^ 前缀，下标加 _ 前缀
+            runs = []
+            for run in para.runs:
+                if not run.text:
+                    continue
+                rPr = run._r.find('.//{http://schemas.openxmlformats.org/wordprocessingml/2006/main}vertAlign')
+                if rPr is not None:
+                    val = rPr.get('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}val')
+                    if val == 'superscript':
+                        runs.append((f"^{run.text}", bool(run.bold)))
+                        continue
+                    elif val == 'subscript':
+                        runs.append((f"_{run.text}", bool(run.bold)))
+                        continue
+                runs.append((run.text, bool(run.bold)))
             if runs:
                 # 如果已有正文，加换行
                 if current_item["body_runs"]:

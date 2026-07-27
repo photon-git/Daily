@@ -126,7 +126,10 @@ def render_weekly_png(data: dict, output_path: str = None) -> str:
         line_h = d.textbbox((0,0), "测", font=f_body)[3] - d.textbbox((0,0), "测", font=f_body)[1] + LINE_SP
         cur_w, line_count = 0, 1
         for text, is_bold in runs:
-            fp = f_body  # 估算用普通字体（加粗宽度相近）
+            # 剥离上下标前缀
+            if text.startswith('^') or (text.startswith('_') and len(text) > 1 and not text[1].isspace()):
+                text = text[1:]
+            fp = f_body
             for ch in text:
                 if ch == '\n':
                     line_count += 1
@@ -240,52 +243,61 @@ def render_weekly_png(data: dict, output_path: str = None) -> str:
             y += line_h
 
     def draw_rich_text(runs, color, indent=0):
-        """富文本换行绘制，runs = [(text, is_bold), ...]，支持行内加粗"""
+        """富文本换行绘制，runs = [(text, is_bold), ...]，支持行内加粗和上下标"""
         nonlocal y
         max_w = content_w - indent
-        # 先把所有 run 拼成带标记的字符序列
-        # 策略：按字符逐个排列，超出宽度换行
         x_offset = 0
         line_h_ref = draw.textbbox((0,0), "测", font=f_body)[3] - draw.textbbox((0,0), "测", font=f_body)[1] + LINE_SP
 
-        # 将 runs 展开成 (char, is_bold) 列表
+        # 将 runs 展开成 (char, is_bold, valign) 列表
+        # valign: 'normal' / 'super' / 'sub'
         chars = []
         for text, is_bold in runs:
+            if text.startswith('^'):
+                valign = 'super'
+                text = text[1:]
+            elif text.startswith('_') and len(text) > 1 and not text[1].isspace():
+                valign = 'sub'
+                text = text[1:]
+            else:
+                valign = 'normal'
             for ch in text:
-                chars.append((ch, is_bold))
+                chars.append((ch, is_bold, valign))
 
         # 分行
         lines = []
         cur_line = []
         cur_w = 0
-        for ch, is_bold in chars:
+        for ch, is_bold, valign in chars:
             if ch == '\n':
                 lines.append(cur_line)
                 cur_line = []
                 cur_w = 0
                 continue
-            fp = f_body_bold if is_bold else f_body
+            if valign != 'normal':
+                fp = _font(max(8, int(f_body.size * 0.65)), is_bold)
+            else:
+                fp = f_body_bold if is_bold else f_body
             bb = draw.textbbox((0,0), ch, font=fp)
             cw = bb[2] - bb[0]
             if cur_w + cw > max_w and cur_line:
                 if ch in _NO_LINE_START:
-                    # 行首禁则：并到本行末
-                    cur_line.append((ch, is_bold))
+                    cur_line.append((ch, is_bold, valign))
                     lines.append(cur_line)
                     cur_line = []
                     cur_w = 0
                 elif cur_line and cur_line[-1][0] in _NO_LINE_END:
-                    # 行尾禁则：行末开括号挪到下一行
                     last = cur_line.pop()
                     lines.append(cur_line)
-                    cur_line = [last, (ch, is_bold)]
-                    cur_w = draw.textbbox((0,0), last[0], font=(f_body_bold if last[1] else f_body))[2] + cw
+                    cur_line = [last, (ch, is_bold, valign)]
+                    lf = f_body_bold if last[1] else f_body
+                    cur_w = draw.textbbox((0,0), last[0], font=lf)[2] + cw
                 else:
                     lines.append(cur_line)
-                    cur_line = [(ch, is_bold)]
+                    cur_line = [(ch, is_bold, valign)]
                     cur_w = cw
             else:
-                cur_line.append((ch, is_bold))
+                cur_line.append((ch, is_bold, valign))
                 cur_w += cw
         if cur_line:
             lines.append(cur_line)
@@ -293,9 +305,14 @@ def render_weekly_png(data: dict, output_path: str = None) -> str:
         # 逐行绘制
         for line in lines:
             x = PAD_X + indent
-            for ch, is_bold in line:
-                fp = f_body_bold if is_bold else f_body
-                draw.text((x, y), ch, font=fp, fill=color)
+            for ch, is_bold, valign in line:
+                if valign != 'normal':
+                    fp = _font(max(8, int(f_body.size * 0.65)), is_bold)
+                    offset = -int(line_h_ref * 0.35) if valign == 'super' else int(line_h_ref * 0.2)
+                else:
+                    fp = f_body_bold if is_bold else f_body
+                    offset = 0
+                draw.text((x, y + offset), ch, font=fp, fill=color)
                 bb = draw.textbbox((0,0), ch, font=fp)
                 x += bb[2] - bb[0]
             y += line_h_ref
