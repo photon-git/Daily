@@ -238,7 +238,7 @@ def process_province_in_background(file_key: str, msg_id: str, chat_id: str, fil
 
         data     = parse_xlsx(tmp_xlsx, date_range="")  # date_range 从原始文件名提取
         # 用原始文件名提取日期，tmp 文件名里没有日期信息
-        from province_parser import _extract_date_range
+        from bots.province.parser import _extract_date_range
         date_range = _extract_date_range(file_name) if file_name else ""
         data["date_range"] = date_range
         ts       = datetime.now().strftime('%Y%m%d%H%M%S')
