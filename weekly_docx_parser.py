@@ -7,6 +7,33 @@ weekly_docx_parser.py
 import re
 from docx import Document
 
+# Unicode 上标/下标字符 → 普通数字/字母映射
+_SUP_MAP = str.maketrans('⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻ⁿ', '0123456789+-n')
+_SUB_MAP = str.maketrans('₀₁₂₃₄₅₆₇₈₉₊₋', '0123456789+-')
+_SUP_CHARS = set('⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻ⁿ')
+_SUB_CHARS = set('₀₁₂₃₄₅₆₇₈₉₊₋')
+
+def _convert_unicode_scripts(text: str) -> list:
+    """把含 Unicode 上下标字符的文本拆分成 [(片段, 类型)] 列表
+    类型: 'normal' / 'super' / 'sub'
+    """
+    segments = []
+    cur, cur_type = '', 'normal'
+    for ch in text:
+        if ch in _SUP_CHARS:
+            t = 'super'; c = ch.translate(_SUP_MAP)
+        elif ch in _SUB_CHARS:
+            t = 'sub';   c = ch.translate(_SUB_MAP)
+        else:
+            t = 'normal'; c = ch
+        if t != cur_type:
+            if cur: segments.append((cur, cur_type))
+            cur, cur_type = c, t
+        else:
+            cur += c
+    if cur: segments.append((cur, cur_type))
+    return segments
+
 
 def parse_weekly_docx(docx_path: str) -> dict:
     doc = Document(docx_path)
@@ -86,16 +113,24 @@ def parse_weekly_docx(docx_path: str) -> dict:
             for run in para.runs:
                 if not run.text:
                     continue
+                bold = bool(run.bold)
                 rPr = run._r.find('.//{http://schemas.openxmlformats.org/wordprocessingml/2006/main}vertAlign')
                 if rPr is not None:
                     val = rPr.get('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}val')
                     if val == 'superscript':
-                        runs.append((f"^{run.text}", bool(run.bold)))
+                        runs.append((f"^{run.text}", bold))
                         continue
                     elif val == 'subscript':
-                        runs.append((f"_{run.text}", bool(run.bold)))
+                        runs.append((f"_{run.text}", bold))
                         continue
-                runs.append((run.text, bool(run.bold)))
+                # 处理 Unicode 上下标字符（如 CO₂ 里的 ₂）
+                for seg_text, seg_type in _convert_unicode_scripts(run.text):
+                    if seg_type == 'super':
+                        runs.append((f"^{seg_text}", bold))
+                    elif seg_type == 'sub':
+                        runs.append((f"_{seg_text}", bold))
+                    else:
+                        runs.append((seg_text, bold))
             if runs:
                 # 如果已有正文，加换行
                 if current_item["body_runs"]:
