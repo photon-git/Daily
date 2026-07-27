@@ -9,14 +9,14 @@ from fastapi import FastAPI, Request, Response, BackgroundTasks
 from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from daily_parser        import parse_daily_report
-from daily_png_renderer  import render_daily_png
-from weekly_parser       import parse_weekly_report
-from weekly_png_renderer import render_weekly_png
-from province_parser     import parse_xlsx
-from province_renderer   import render_province_png
-from elec_week_parser    import parse_elec_week
-from elec_week_renderer  import render_elec_week_png
+from bots.daily.parser       import parse_daily_report
+from bots.daily.renderer     import render_daily_png
+from bots.weekly.parser      import parse_weekly_report
+from bots.weekly.renderer    import render_weekly_png
+from bots.province.parser    import parse_xlsx
+from bots.province.renderer  import render_province_png
+from bots.elec_week.parser   import parse_elec_week
+from bots.elec_week.renderer import render_elec_week_png
 
 app = FastAPI()
 
@@ -189,7 +189,7 @@ def process_file_in_background(file_key: str, msg_id: str, chat_id: str):
         with open(tmp_docx, "wb") as f:
             f.write(r.content)
 
-        from weekly_docx_parser import parse_weekly_docx
+        from bots.weekly.docx_parser import parse_weekly_docx
         data     = parse_weekly_docx(tmp_docx)
         ts       = datetime.now().strftime('%Y%m%d%H%M%S')
         out_path = os.path.join(out_dir, f"weekly_{ts}.png")

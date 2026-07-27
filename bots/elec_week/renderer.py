@@ -9,7 +9,7 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 from datetime import datetime
 
-_HERE     = os.path.dirname(os.path.abspath(__file__))
+_HERE     = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 ASSETS    = os.path.join(_HERE, "assets")
 FONTS_DIR = os.path.join(_HERE, "fonts")
 OUT_DIR   = os.path.join(_HERE, "output")

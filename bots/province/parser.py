@@ -7,7 +7,7 @@ import os
 import re
 import pandas as pd
 
-_HERE = os.path.dirname(os.path.abspath(__file__))
+_HERE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DEFAULT_XLSX = os.path.join(_HERE, "assets", "市场信息收集表.xlsx")
 
 

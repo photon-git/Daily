@@ -17,7 +17,7 @@ from matplotlib.colors import LinearSegmentedColormap
 from datetime import date, datetime
 
 # ── 路径 ────────────────────────────────────────────────
-_HERE     = os.path.dirname(os.path.abspath(__file__))
+_HERE     = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 BJ_PATH   = os.path.join(_HERE, "assets/bj.png")
 JB_PATH   = os.path.join(_HERE, "assets/jiaobiao.png")
 LM_PATH   = os.path.join(_HERE, "assets/lm.png")

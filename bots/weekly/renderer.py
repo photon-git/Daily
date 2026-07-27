@@ -9,7 +9,11 @@ import os, re
 from PIL import Image, ImageDraw, ImageFont
 from datetime import datetime
 
-_HERE     = os.path.dirname(os.path.abspath(__file__))
+# 行首禁则：这些符号不能出现在行首
+_NO_LINE_START = set('，。！？、；：）》」』”…—～·,.!?;:)]}')
+_NO_LINE_END   = set('（《「『“([{')
+
+_HERE     = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 JB_PATH    = os.path.join(_HERE, "assets/jiaobiao.png")
 WEEKBG_PATH= os.path.join(_HERE, "assets/weekbg.png")
 TOP_PATH   = os.path.join(_HERE, "assets/top.png")
@@ -45,7 +49,7 @@ def _font(size, bold=False):
 
 
 def _text_wrap(draw, text, font, max_w):
-    """按像素宽度自动换行，返回行列表"""
+    """按像素宽度自动换行，行首/行尾禁则处理"""
     if not text:
         return [""]
     lines, cur = [], ""
@@ -53,8 +57,17 @@ def _text_wrap(draw, text, font, max_w):
         test = cur + ch
         bb = draw.textbbox((0,0), test, font=font)
         if bb[2] > max_w and cur:
-            lines.append(cur)
-            cur = ch
+            if ch in _NO_LINE_START:
+                # 行首禁则：符号并到本行末
+                lines.append(cur + ch)
+                cur = ""
+            elif cur and cur[-1] in _NO_LINE_END:
+                # 行尾禁则：行末开括号挪到下一行
+                lines.append(cur[:-1])
+                cur = cur[-1] + ch
+            else:
+                lines.append(cur)
+                cur = ch
         else:
             cur = test
     if cur:
@@ -113,7 +126,10 @@ def render_weekly_png(data: dict, output_path: str = None) -> str:
         line_h = d.textbbox((0,0), "测", font=f_body)[3] - d.textbbox((0,0), "测", font=f_body)[1] + LINE_SP
         cur_w, line_count = 0, 1
         for text, is_bold in runs:
-            fp = f_body  # 估算用普通字体（加粗宽度相近）
+            # 剥离上下标前缀
+            if text.startswith('^') or (text.startswith('_') and len(text) > 1 and not text[1].isspace()):
+                text = text[1:]
+            fp = f_body
             for ch in text:
                 if ch == '\n':
                     line_count += 1
@@ -184,20 +200,12 @@ def render_weekly_png(data: dict, output_path: str = None) -> str:
     img = Image.new("RGB", (W, total_h), (255, 255, 255))
 
     # 第二遍只画文字，背景/边框在最后合成
-    top_h = 260   # 记录 top 高度供后用
+    top_h = 220   # 记录 top 高度供后用
     draw = ImageDraw.Draw(img)
 
-    # ── Header：logo 左，标题+时间 右 ──────────────────
+    # ── Header：标题+时间 右 ──────────────────
     y = 16
     HDR_H_PX = 120
-
-    # 贴 logo（左上，放大）
-    if os.path.exists(JB_PATH):
-        jb = Image.open(JB_PATH).convert("RGBA")
-        jb_h = 120
-        jb_w = int(jb.width * jb_h / jb.height)
-        jb = jb.resize((jb_w, jb_h), Image.LANCZOS)
-        img.paste(jb, (PAD_X, 20), jb)
 
     # 主标题靠右，黑色加粗，字号放大
     title_text = data.get('title', '每周政策信息')
@@ -235,48 +243,76 @@ def render_weekly_png(data: dict, output_path: str = None) -> str:
             y += line_h
 
     def draw_rich_text(runs, color, indent=0):
-        """富文本换行绘制，runs = [(text, is_bold), ...]，支持行内加粗"""
+        """富文本换行绘制，runs = [(text, is_bold), ...]，支持行内加粗和上下标"""
         nonlocal y
         max_w = content_w - indent
-        # 先把所有 run 拼成带标记的字符序列
-        # 策略：按字符逐个排列，超出宽度换行
         x_offset = 0
         line_h_ref = draw.textbbox((0,0), "测", font=f_body)[3] - draw.textbbox((0,0), "测", font=f_body)[1] + LINE_SP
 
-        # 将 runs 展开成 (char, is_bold) 列表
+        # 将 runs 展开成 (char, is_bold, valign) 列表
+        # valign: 'normal' / 'super' / 'sub'
         chars = []
         for text, is_bold in runs:
+            if text.startswith('^'):
+                valign = 'super'
+                text = text[1:]
+            elif text.startswith('_') and len(text) > 1 and not text[1].isspace():
+                valign = 'sub'
+                text = text[1:]
+            else:
+                valign = 'normal'
             for ch in text:
-                chars.append((ch, is_bold))
+                chars.append((ch, is_bold, valign))
 
         # 分行
         lines = []
         cur_line = []
         cur_w = 0
-        for ch, is_bold in chars:
+        for ch, is_bold, valign in chars:
             if ch == '\n':
                 lines.append(cur_line)
                 cur_line = []
                 cur_w = 0
                 continue
-            fp = f_body_bold if is_bold else f_body
+            if valign != 'normal':
+                fp = _font(max(8, int(f_body.size * 0.65)), is_bold)
+            else:
+                fp = f_body_bold if is_bold else f_body
             bb = draw.textbbox((0,0), ch, font=fp)
             cw = bb[2] - bb[0]
             if cur_w + cw > max_w and cur_line:
-                lines.append(cur_line)
-                cur_line = []
-                cur_w = 0
-            cur_line.append((ch, is_bold))
-            cur_w += cw
+                if ch in _NO_LINE_START:
+                    cur_line.append((ch, is_bold, valign))
+                    lines.append(cur_line)
+                    cur_line = []
+                    cur_w = 0
+                elif cur_line and cur_line[-1][0] in _NO_LINE_END:
+                    last = cur_line.pop()
+                    lines.append(cur_line)
+                    cur_line = [last, (ch, is_bold, valign)]
+                    lf = f_body_bold if last[1] else f_body
+                    cur_w = draw.textbbox((0,0), last[0], font=lf)[2] + cw
+                else:
+                    lines.append(cur_line)
+                    cur_line = [(ch, is_bold, valign)]
+                    cur_w = cw
+            else:
+                cur_line.append((ch, is_bold, valign))
+                cur_w += cw
         if cur_line:
             lines.append(cur_line)
 
         # 逐行绘制
         for line in lines:
             x = PAD_X + indent
-            for ch, is_bold in line:
-                fp = f_body_bold if is_bold else f_body
-                draw.text((x, y), ch, font=fp, fill=color)
+            for ch, is_bold, valign in line:
+                if valign != 'normal':
+                    fp = _font(max(8, int(f_body.size * 0.65)), is_bold)
+                    offset = -int(line_h_ref * 0.35) if valign == 'super' else int(line_h_ref * 0.2)
+                else:
+                    fp = f_body_bold if is_bold else f_body
+                    offset = 0
+                draw.text((x, y + offset), ch, font=fp, fill=color)
                 bb = draw.textbbox((0,0), ch, font=fp)
                 x += bb[2] - bb[0]
             y += line_h_ref
@@ -331,20 +367,10 @@ def render_weekly_png(data: dict, output_path: str = None) -> str:
         final.paste(kuang2, (BOX_X, CONTENT_TOP), kuang2)
 
     # 3. 贴 logo
-    if os.path.exists(JB_PATH):
-        jb2 = Image.open(JB_PATH).convert("RGBA")
-        jb_h2 = 120
-        jb_w2 = int(jb2.width * jb_h2 / jb2.height)
-        jb2 = jb2.resize((jb_w2, jb_h2), Image.LANCZOS)
-        final.paste(jb2, (PAD_X, 20), jb2)
-
     # 4. 文字层叠在最上（白色背景区域透出底层）
-    # 用 composite：文字画布白色部分透出背景，黑色文字保留
-    # 把文字层转为 RGBA，白色区域 alpha=0，文字区域 alpha=255
     import numpy as np
     txt_arr  = np.array(text_img.convert("RGB")).astype(float)
-    # 白色(255,255,255)区域设为透明
-    mask = np.all(txt_arr > 240, axis=2)   # 近白色区域
+    mask = np.all(txt_arr > 240, axis=2)
     alpha = np.where(mask, 0, 255).astype(np.uint8)
     txt_rgba = np.dstack([txt_arr.astype(np.uint8), alpha])
     txt_layer = Image.fromarray(txt_rgba, "RGBA")
@@ -352,14 +378,45 @@ def render_weekly_png(data: dict, output_path: str = None) -> str:
     final.paste(txt_layer, (0, 0), txt_layer)
     final = final.convert("RGB")
 
-    # 保存
+    # 5. 带角标版本：文字合成后再贴 logo
+    if os.path.exists(JB_PATH):
+        jb2 = Image.open(JB_PATH).convert("RGBA")
+        jb_h2 = 120
+        jb_w2 = int(jb2.width * jb_h2 / jb2.height)
+        jb2 = jb2.resize((jb_w2, jb_h2), Image.LANCZOS)
+        final.paste(jb2, (PAD_X, 20), jb2)
+
+    # 保存（带角标版本）
     if not output_path:
         today = datetime.now().strftime('%Y-%m-%d')
         output_path = os.path.join(OUT_DIR, f"weekly_{today}.png")
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     final.save(output_path, "PNG")
     print(f"✅ 已生成：{output_path}  ({W}×{actual_h}px)")
-    return output_path
+
+    # 不带角标版本：去掉 logo 重新合成
+    base, ext = os.path.splitext(output_path)
+    path_nojb = f"{base}_nojb{ext}"
+    final_nojb = Image.new("RGB", (W, actual_h), BG)
+    if os.path.exists(TOP_PATH):
+        top2 = Image.open(TOP_PATH).convert("RGB").resize((W, top_h), Image.LANCZOS)
+        final_nojb.paste(top2, (0, 0))
+    if os.path.exists(WEEKBG_PATH):
+        remain2 = actual_h - top_h
+        if remain2 > 0:
+            bg2 = Image.open(WEEKBG_PATH).convert("RGB").resize((W, remain2), Image.LANCZOS)
+            final_nojb.paste(bg2, (0, top_h))
+    if os.path.exists(KUANG_PATH):
+        kuang3 = Image.open(KUANG_PATH).convert("RGBA")
+        kuang3 = kuang3.resize((BOX_W, actual_h - CONTENT_TOP), Image.LANCZOS)
+        final_nojb.paste(kuang3, (BOX_X, CONTENT_TOP), kuang3)
+    final_nojb = final_nojb.convert("RGBA")
+    final_nojb.paste(txt_layer, (0, 0), txt_layer)
+    final_nojb = final_nojb.convert("RGB")
+    final_nojb.save(path_nojb, "PNG")
+    print(f"✅ 已生成（无角标）：{path_nojb}  ({W}×{actual_h}px)")
+
+    return output_path, path_nojb
 
 
 if __name__ == '__main__':
