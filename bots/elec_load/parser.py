@@ -76,7 +76,8 @@ def parse_elec_load(raw_text: str) -> dict:
         response_format={"type": "json_object"},
     )
     text = response.choices[0].message.content.strip()
-    print(f"[elec_load parser] raw response: {text[:200]}")
+    print(f"[elec_load parser] finish_reason={response.choices[0].finish_reason}")
+    print(f"[elec_load parser] raw response: {text[:500]}")
     if not text:
         raise ValueError("DeepSeek 返回空内容")
     match = re.search(r'\{.*\}', text, re.DOTALL)
