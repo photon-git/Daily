@@ -114,8 +114,12 @@ def _tc(ax, x, y, w, h, text, fp, color, zorder=5, clip=None, star=False):
     return t
 
 # ── Pillow 文字自动换行渲染（用于底部说明）
-def _mpl_wrap(fig, text, max_w_px, fp):
-    """用 matplotlib renderer 测量文字宽度并换行"""
+def _mpl_wrap(fig, text, max_w_px, fp, first_w_px=None):
+    """用 matplotlib renderer 测量文字宽度并换行
+    first_w_px: 第一行可用宽度（比 max_w_px 小，用于首行缩进）
+    """
+    if first_w_px is None:
+        first_w_px = max_w_px
     renderer = fig.canvas.get_renderer()
     tmp_ax = fig.add_axes([0,0,0,0])
     tmp_ax.set_xlim(0, PX_W); tmp_ax.set_ylim(0, 100)
@@ -126,7 +130,8 @@ def _mpl_wrap(fig, text, max_w_px, fp):
         t = tmp_ax.text(0, 0, test, fontproperties=fp)
         bb = t.get_window_extent(renderer=renderer)
         t.remove()
-        if bb.width > max_w_px and cur:
+        limit = first_w_px if not lines else max_w_px
+        if bb.width > limit and cur:
             lines.append(cur); cur = ch
         else:
             cur = test
@@ -201,13 +206,16 @@ def render_elec_load_png(data: dict, output_path: str) -> str:
         tmp_fig = plt.figure(figsize=(PX_W/DPI, 100/DPI), dpi=DPI)
         # 先按 \n 拆成自然段，再对每段做自动换行
         note_segments = [s.strip() for s in note.split('\n') if s.strip()]
+        full_w = TBL_W - 80
         note_lines_mpl = []
         for seg in note_segments:
-            wrapped = _mpl_wrap(tmp_fig, seg, TBL_W - 80, _fp(38,'b'))
+            # 首行加两个全角空格实现缩进，换行后自然对齐
+            seg_indented = '　　' + seg
+            wrapped = _mpl_wrap(tmp_fig, seg_indented, full_w, _fp(38,'b'))
             note_lines_mpl.extend(wrapped)
-            note_lines_mpl.append("")  # 段落间空一行
+            note_lines_mpl.append("")
         if note_lines_mpl and note_lines_mpl[-1] == "":
-            note_lines_mpl.pop()  # 去掉末尾多余空行
+            note_lines_mpl.pop()
         plt.close(tmp_fig)
         note_h = NOTE_HDR_H + sum(58 if ln else 20 for ln in note_lines_mpl) + NOTE_PAD * 2
     else:
@@ -402,32 +410,14 @@ def render_elec_load_png(data: dict, output_path: str) -> str:
         N(ax.add_patch(mpatches.Rectangle((x0, ny+NOTE_HDR_H), nw, nh-NOTE_HDR_H,
                        facecolor=WHITE, edgecolor="none", zorder=2)))
         ty = ny + NOTE_HDR_H + 30
-        left_x   = x0 + 40                                       # 顶格 x
-        indent_x = x0 + 40 + int(_fp(38,'b').get_size() * 1.8)  # 首行缩进 x
-        has_num  = any(ln and len(ln) >= 2 and ln[0].isdigit() and ln[1] == '.' for ln in note_lines_mpl)
-        first_in_seg = True  # 是否是段落的第一行
+        left_x = x0 + 40
         for ln in note_lines_mpl:
             if ln:
-                is_num_line = has_num and len(ln) >= 2 and ln[0].isdigit() and ln[1] == '.'
-                if is_num_line:
-                    # 编号行：缩进
-                    x_start = indent_x
-                    first_in_seg = False
-                    # 记录编号宽度供续行对齐用
-                    num_prefix = ln[:2]  # "1." "2."
-                elif first_in_seg:
-                    # 非编号段落首行：缩进
-                    x_start = indent_x
-                    first_in_seg = False
-                else:
-                    # 续行：顶格
-                    x_start = left_x
-                t = ax.text(x_start, ty, ln, va='top',
+                t = ax.text(left_x, ty, ln, va='top',
                             fontproperties=_fp(38,'b'), color=DARK, zorder=4)
                 t.set_clip_path(n_clip); t.set_clip_on(True)
                 ty += 58
             else:
-                first_in_seg = True
                 ty += 20  # 段落间距缩小
 
         ax.add_patch(FancyBboxPatch((x0, ny), nw, nh,
