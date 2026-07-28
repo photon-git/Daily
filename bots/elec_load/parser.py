@@ -68,7 +68,7 @@ def parse_elec_load(raw_text: str) -> dict:
     )
     response = client.chat.completions.create(
         model="deepseek-v4-pro",
-        max_tokens=3000,
+        max_tokens=4000,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user",   "content": raw_text},
