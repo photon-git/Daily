@@ -62,6 +62,8 @@ SYSTEM_PROMPT = """你是电力系统负荷数据解析专家。
 
 
 def parse_elec_load(raw_text: str) -> dict:
+    from datetime import datetime
+    today = datetime.now().strftime("%Y年%m月%d日")
     client = OpenAI(
         api_key=os.environ.get("DEEPSEEK_API_KEY"),
         base_url="https://api.deepseek.com",
@@ -71,7 +73,7 @@ def parse_elec_load(raw_text: str) -> dict:
         max_tokens=4000,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user",   "content": raw_text},
+            {"role": "user",   "content": f"今天是{today}。\n\n{raw_text}"},
         ],
         response_format={"type": "json_object"},
     )
@@ -81,4 +83,8 @@ def parse_elec_load(raw_text: str) -> dict:
     if not text:
         raise ValueError("DeepSeek 返回空内容")
     match = re.search(r'\{.*\}', text, re.DOTALL)
-    return json.loads(match.group() if match else text)
+    data = json.loads(match.group() if match else text)
+    # 清掉 note 里的标题行
+    if "note" in data and data["note"]:
+        data["note"] = re.sub(r'^公司经营区及各省市创新高情况[：:]\s*', '', data["note"]).strip()
+    return data
