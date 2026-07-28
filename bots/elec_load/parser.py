@@ -68,7 +68,7 @@ def parse_elec_load(raw_text: str) -> dict:
     )
     response = client.chat.completions.create(
         model="deepseek-v4-pro",
-        max_tokens=1000,
+        max_tokens=1500,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user",   "content": raw_text},
@@ -76,5 +76,8 @@ def parse_elec_load(raw_text: str) -> dict:
         response_format={"type": "json_object"},
     )
     text = response.choices[0].message.content.strip()
+    print(f"[elec_load parser] raw response: {text[:200]}")
+    if not text:
+        raise ValueError("DeepSeek 返回空内容")
     match = re.search(r'\{.*\}', text, re.DOTALL)
     return json.loads(match.group() if match else text)

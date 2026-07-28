@@ -23,8 +23,8 @@ from bots.elec_load.renderer import render_elec_load_png
 app = FastAPI()
 
 # 日报机器人凭证
-APP_ID     = os.environ.get("FEISHU_APP_ID",    "cli_aab8fe3742bcdcd6")
-APP_SECRET = os.environ.get("FEISHU_APP_SECRET", "O2MMQJbSlw5MJfmcPXmq8b3yxFurGXem")
+APP_ID     = os.environ.get("FEISHU_APP_ID",     "")
+APP_SECRET = os.environ.get("FEISHU_APP_SECRET", "")
 
 # 周报机器人凭证（单独应用）
 WEEKLY_APP_ID     = os.environ.get("FEISHU_WEEKLY_APP_ID",     APP_ID)
