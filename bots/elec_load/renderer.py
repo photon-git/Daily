@@ -402,13 +402,25 @@ def render_elec_load_png(data: dict, output_path: str) -> str:
         N(ax.add_patch(mpatches.Rectangle((x0, ny+NOTE_HDR_H), nw, nh-NOTE_HDR_H,
                        facecolor=WHITE, edgecolor="none", zorder=2)))
         ty = ny + NOTE_HDR_H + 30
+        base_x   = x0 + 40 + int(_fp(38,'b').get_size() * 1.5)  # 所有行基础缩进
+        hang_x   = base_x + int(_fp(38,'b').get_size() * 1.8)   # 续行额外缩进
+        # 判断是否有编号段落
+        has_num  = any(ln and len(ln) >= 2 and ln[0].isdigit() and ln[1] == '.' for ln in note_lines_mpl)
+        in_numbered = False
         for ln in note_lines_mpl:
             if ln:
-                t = ax.text(x0+40, ty, ln, va='top',
+                is_num_line = has_num and len(ln) >= 2 and ln[0].isdigit() and ln[1] == '.'
+                if is_num_line:
+                    in_numbered = True
+                    x_start = base_x
+                else:
+                    x_start = hang_x if in_numbered else base_x
+                t = ax.text(x_start, ty, ln, va='top',
                             fontproperties=_fp(38,'b'), color=DARK, zorder=4)
                 t.set_clip_path(n_clip); t.set_clip_on(True)
                 ty += 58
             else:
+                in_numbered = False
                 ty += 20  # 段落间距缩小
 
         ax.add_patch(FancyBboxPatch((x0, ny), nw, nh,
