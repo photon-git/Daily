@@ -199,9 +199,17 @@ def render_elec_load_png(data: dict, output_path: str) -> str:
     # ── 第一步：用临时 figure 测量说明框行数，确定总高度
     if note:
         tmp_fig = plt.figure(figsize=(PX_W/DPI, 100/DPI), dpi=DPI)
-        note_lines_mpl = _mpl_wrap(tmp_fig, note, TBL_W - 80, _fp(38,'b'))
+        # 先按 \n 拆成自然段，再对每段做自动换行
+        note_segments = [s.strip() for s in note.split('\n') if s.strip()]
+        note_lines_mpl = []
+        for seg in note_segments:
+            wrapped = _mpl_wrap(tmp_fig, seg, TBL_W - 80, _fp(38,'b'))
+            note_lines_mpl.extend(wrapped)
+            note_lines_mpl.append("")  # 段落间空一行
+        if note_lines_mpl and note_lines_mpl[-1] == "":
+            note_lines_mpl.pop()  # 去掉末尾多余空行
         plt.close(tmp_fig)
-        note_h = NOTE_HDR_H + len(note_lines_mpl) * 58 + NOTE_PAD * 2
+        note_h = NOTE_HDR_H + sum(58 if ln else 20 for ln in note_lines_mpl) + NOTE_PAD * 2
     else:
         note_lines_mpl = []
         note_h = 0
@@ -395,10 +403,13 @@ def render_elec_load_png(data: dict, output_path: str) -> str:
                        facecolor=WHITE, edgecolor="none", zorder=2)))
         ty = ny + NOTE_HDR_H + 30
         for ln in note_lines_mpl:
-            t = ax.text(x0+40, ty, ln, va='top',
-                        fontproperties=_fp(38,'b'), color=DARK, zorder=4)
-            t.set_clip_path(n_clip); t.set_clip_on(True)
-            ty += 58
+            if ln:
+                t = ax.text(x0+40, ty, ln, va='top',
+                            fontproperties=_fp(38,'b'), color=DARK, zorder=4)
+                t.set_clip_path(n_clip); t.set_clip_on(True)
+                ty += 58
+            else:
+                ty += 20  # 段落间距缩小
 
         ax.add_patch(FancyBboxPatch((x0, ny), nw, nh,
                      boxstyle=f"round,pad=0,rounding_size={RADIUS}",
