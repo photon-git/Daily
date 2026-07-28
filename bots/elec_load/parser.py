@@ -73,7 +73,7 @@ def parse_elec_load(raw_text: str) -> dict:
         max_tokens=4000,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user",   "content": f"今天是{today}。\n\n{raw_text}"},
+            {"role": "user",   "content": f"（今天是{today}，仅当输入中没有明确日期时才参考此日期）\n\n{raw_text}"},
         ],
         response_format={"type": "json_object"},
     )
