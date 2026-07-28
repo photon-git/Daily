@@ -456,6 +456,9 @@ async def _handle_webhook(request: Request, background_tasks: BackgroundTasks, m
             text = json.loads(msg.get("content", "{}")).get("text", "").strip()
             if "@" in text:
                 text = text.split(">")[-1].strip() if ">" in text else text
+            # 清除残留的 @_user_xxx 占位符
+            import re as _re
+            text = _re.sub(r'@[_a-zA-Z0-9]+', '', text).strip()
         except:
             return Response("ok")
         if not text: return Response("ok")
