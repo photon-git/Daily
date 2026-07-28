@@ -17,6 +17,8 @@ from bots.province.parser    import parse_xlsx
 from bots.province.renderer  import render_province_png
 from bots.elec_week.parser   import parse_elec_week
 from bots.elec_week.renderer import render_elec_week_png
+from bots.elec_load.parser   import parse_elec_load
+from bots.elec_load.renderer import render_elec_load_png
 
 app = FastAPI()
 
@@ -36,6 +38,10 @@ PROVINCE_APP_SECRET = os.environ.get("FEISHU_PROVINCE_APP_SECRET", "")
 ELEC_APP_ID     = os.environ.get("FEISHU_ELEC_APP_ID",     "")
 ELEC_APP_SECRET = os.environ.get("FEISHU_ELEC_APP_SECRET", "")
 
+# 迎峰度夏负荷机器人凭证
+ELEC_LOAD_APP_ID     = os.environ.get("FEISHU_ELEC_LOAD_APP_ID",     "")
+ELEC_LOAD_APP_SECRET = os.environ.get("FEISHU_ELEC_LOAD_APP_SECRET", "")
+
 # 去重
 _processed: dict = {}
 _DEDUP_TTL = 300
@@ -49,8 +55,10 @@ def _is_processed(msg_id: str, mode: str = "daily") -> bool:
     _processed[key] = now
     return False
 
-def get_token(weekly=False, province=False, elec=False):
-    if elec:
+def get_token(weekly=False, province=False, elec=False, elec_load=False):
+    if elec_load:
+        aid, asc = ELEC_LOAD_APP_ID, ELEC_LOAD_APP_SECRET
+    elif elec:
         aid, asc = ELEC_APP_ID, ELEC_APP_SECRET
     elif province:
         aid, asc = PROVINCE_APP_ID, PROVINCE_APP_SECRET
@@ -111,15 +119,26 @@ def _run_once(fn, *args, **kwargs):
 
 def process_in_background(text: str, chat_id: str, mode: str = "daily"):
     out_path = None
-    weekly   = (mode == "weekly")
-    elec     = (mode == "elec_week")
+    weekly    = (mode == "weekly")
+    elec      = (mode == "elec_week")
+    elec_load = (mode == "elec_load")
     try:
         token   = get_token(weekly)
         out_dir = os.path.join(os.path.dirname(__file__), "output")
         os.makedirs(out_dir, exist_ok=True)
         ts = datetime.now().strftime('%Y%m%d%H%M%S')
 
-        if elec:
+        if elec_load:
+            data      = parse_elec_load(text)
+            out_path  = os.path.join(out_dir, f"elec_load_{ts}.png")
+            _run_once(render_elec_load_png, data, output_path=out_path)
+            image_key = upload_image(out_path, get_token(elec_load=True))
+            if image_key:
+                send_message(chat_id, "image", {"image_key": image_key}, get_token(elec_load=True))
+                os.remove(out_path)
+            else:
+                send_message(chat_id, "text", {"text": "❌ 图片上传失败"}, get_token(elec_load=True))
+        elif elec:
             data     = parse_elec_week(text)
             out_path = os.path.join(out_dir, f"elec_week_{ts}.png")
             _run_once(render_elec_week_png, data, output_path=out_path)
@@ -279,8 +298,12 @@ async def webhook_province(request: Request, background_tasks: BackgroundTasks):
 
 @app.post("/webhook/elec_week")
 async def webhook_elec_week(request: Request, background_tasks: BackgroundTasks):
-    """电量周度数据机器人入口（@ 机器人发文字）"""
     return await _handle_webhook(request, background_tasks, mode="elec_week")
+
+@app.post("/webhook/elec_load")
+async def webhook_elec_load(request: Request, background_tasks: BackgroundTasks):
+    """迎峰度夏最大用电负荷情况机器人"""
+    return await _handle_webhook(request, background_tasks, mode="elec_load")
 
 async def _handle_webhook(request: Request, background_tasks: BackgroundTasks, mode: str):
     body = await request.json()
@@ -343,7 +366,12 @@ async def _handle_webhook(request: Request, background_tasks: BackgroundTasks, m
         except:
             return Response("ok")
         if not text: return Response("ok")
-        tok = get_token(elec=True) if mode == "elec_week" else get_token(weekly=False)
+        if mode == "elec_week":
+            tok = get_token(elec=True)
+        elif mode == "elec_load":
+            tok = get_token(elec_load=True)
+        else:
+            tok = get_token(weekly=False)
         send_message(chat_id, "text", {"text": "⚙️ 正在解析并生成图片，请稍候..."}, tok)
         background_tasks.add_task(process_in_background, text, chat_id, mode)
 
