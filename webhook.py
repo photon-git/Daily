@@ -427,9 +427,10 @@ async def _handle_webhook(request: Request, background_tasks: BackgroundTasks, m
             print(f"[file] mode={mode} file_key={file_key} file_name={file_name}")
             if not file_key:
                 pass
-            elif mode == "marketing" and file_name.lower().endswith(".docx"):
+            elif mode == "marketing" and (file_name.lower().endswith(".docx") or not file_name):
                 # 保存为该群模板
                 token = get_token(marketing=True)
+                send_message(chat_id, "text", {"text": "⚙️ 正在更新模板，请稍候..."}, token)
                 background_tasks.add_task(
                     process_marketing_template, file_key, msg_id, chat_id)
             elif file_name.lower().endswith(".xlsx") or file_name.lower().endswith(".xls"):
