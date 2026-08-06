@@ -63,7 +63,7 @@ def parse_daily_report(raw_text: str) -> dict:
     )
     response = client.chat.completions.create(
         model="deepseek-v4-pro",
-        max_tokens=1500,
+        max_tokens=4000,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user",   "content": raw_text},
@@ -71,6 +71,8 @@ def parse_daily_report(raw_text: str) -> dict:
         response_format={"type": "json_object"},
     )
     text = response.choices[0].message.content.strip()
+    print(f"[daily parser] finish_reason={response.choices[0].finish_reason}")
+    print(f"[daily parser] raw response: {text[:500]}")
     match = re.search(r'\{.*\}', text, re.DOTALL)
     return json.loads(match.group() if match else text)
 
