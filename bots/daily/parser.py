@@ -70,9 +70,12 @@ def parse_daily_report(raw_text: str) -> dict:
         ],
         response_format={"type": "json_object"},
     )
-    text = response.choices[0].message.content.strip()
+    text = response.choices[0].message.content
+    text = text.strip() if text else ""
     print(f"[daily parser] finish_reason={response.choices[0].finish_reason}")
     print(f"[daily parser] raw response: {text[:500]}")
+    if not text:
+        raise ValueError("DeepSeek 返回空内容")
     match = re.search(r'\{.*\}', text, re.DOTALL)
     return json.loads(match.group() if match else text)
 
