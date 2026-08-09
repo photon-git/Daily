@@ -322,6 +322,10 @@ def render_elec_load_png(data: dict, output_path: str) -> str:
     if _is_record("today_max_grid",    "summer_max_grid"):    rf.add("today_max_grid")
     if _is_record("today_peak_cut_company", "summer_peak_cut_company"): rf.add("today_peak_cut_company")
     if _is_record("today_peak_cut_grid",    "summer_peak_cut_grid"):    rf.add("today_peak_cut_grid")
+    if _is_record("prev_max_company", "summer_max_company"): rf.add("prev_max_company")
+    if _is_record("prev_max_grid",    "summer_max_grid"):    rf.add("prev_max_grid")
+    if _is_record("next_max_company", "summer_max_company"): rf.add("next_max_company")
+    if _is_record("next_max_grid",    "summer_max_grid"):    rf.add("next_max_grid")
 
     def data_row(label, v1, v2, h=ROW_H, f1=None, f2=None):
         nonlocal cy
@@ -336,7 +340,7 @@ def render_elec_load_png(data: dict, output_path: str) -> str:
         _tc(ax, x2, cy, COL2, h, str(v2), _fp(38,'m'), DARK, clip=clip, star=(f2 in rf))
         cy += h
 
-    def band_row(label, v1, v2, h=BAND_H):
+    def band_row(label, v1, v2, h=BAND_H, f1=None, f2=None):
         nonlocal cy
         C(ax.add_patch(mpatches.Rectangle((x0, cy), COL0, h,
                        facecolor=TEAL, edgecolor=TEAL_L, lw=0.8, zorder=3)))
@@ -345,11 +349,11 @@ def render_elec_load_png(data: dict, output_path: str) -> str:
         C(ax.add_patch(mpatches.Rectangle((x2, cy), COL2, h,
                        facecolor=CELL_B, edgecolor=BORDER, lw=0.8, zorder=2)))
         _tc(ax, x0, cy, COL0, h, label,  _fp(38,'b'), WHITE, clip=clip)
-        _tc(ax, x1, cy, COL1, h, str(v1), _fp(38,'m'), DARK,  clip=clip)
-        _tc(ax, x2, cy, COL2, h, str(v2), _fp(38,'m'), DARK,  clip=clip)
+        _tc(ax, x1, cy, COL1, h, str(v1), _fp(38,'m'), DARK,  clip=clip, star=(f1 in rf))
+        _tc(ax, x2, cy, COL2, h, str(v2), _fp(38,'m'), DARK,  clip=clip, star=(f2 in rf))
         cy += h
 
-    def light_band_row(label, v1, v2, h=BAND_H, cell_color=CELL_W):
+    def light_band_row(label, v1, v2, h=BAND_H, cell_color=CELL_W, f1=None, f2=None):
         nonlocal cy
         C(ax.add_patch(mpatches.Rectangle((x0, cy), COL0, h,
                        facecolor=TEAL, edgecolor=TEAL_L, lw=0.8, zorder=3)))
@@ -358,8 +362,8 @@ def render_elec_load_png(data: dict, output_path: str) -> str:
         C(ax.add_patch(mpatches.Rectangle((x2, cy), COL2, h,
                        facecolor=cell_color, edgecolor=BORDER, lw=0.8, zorder=2)))
         _tc(ax, x0, cy, COL0, h, label,  _fp(38,'b'), WHITE, clip=clip)
-        _tc(ax, x1, cy, COL1, h, str(v1), _fp(38,'m'), DARK,  clip=clip)
-        _tc(ax, x2, cy, COL2, h, str(v2), _fp(38,'m'), DARK,  clip=clip)
+        _tc(ax, x1, cy, COL1, h, str(v1), _fp(38,'m'), DARK,  clip=clip, star=(f1 in rf))
+        _tc(ax, x2, cy, COL2, h, str(v2), _fp(38,'m'), DARK,  clip=clip, star=(f2 in rf))
         cy += h
 
     date_lbl = data.get("date_label", "当日")
@@ -378,9 +382,11 @@ def render_elec_load_png(data: dict, output_path: str) -> str:
     light_band_row("度夏以来创新高次数",
                    d.get("record_high_company","/"), d.get("record_high_grid","/"))
     light_band_row("前一日最大负荷(亿千瓦)",
-             d.get("prev_max_company","/"), d.get("prev_max_grid","/"), cell_color=CELL_G)
+             d.get("prev_max_company","/"), d.get("prev_max_grid","/"),
+             cell_color=CELL_G, f1="prev_max_company", f2="prev_max_grid")
     band_row(f"{next_lbl}预测值(亿千瓦)",
-                   d.get("next_max_company","/"), d.get("next_max_grid","/"))
+                   d.get("next_max_company","/"), d.get("next_max_grid","/"),
+                   f1="next_max_company", f2="next_max_grid")
 
     # 外框
     ax.add_patch(FancyBboxPatch((x0, ys), TBL_W, tbl_h,
