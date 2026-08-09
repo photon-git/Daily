@@ -21,6 +21,8 @@ from bots.elec_load.parser      import parse_elec_load
 from bots.elec_load.renderer    import render_elec_load_png
 from bots.marketing.generator   import generate_marketing_docx
 from bots.marketing.template_store import get_template_path, save_template
+from bots.weekly_daily.docx_parser import parse_weekly_docx as parse_weekly_daily_docx
+from bots.weekly_daily.renderer    import render_weekly_png as render_weekly_daily_png
 
 app = FastAPI()
 
@@ -48,6 +50,10 @@ ELEC_LOAD_APP_SECRET = os.environ.get("FEISHU_ELEC_LOAD_APP_SECRET", "")
 MARKETING_APP_ID     = os.environ.get("FEISHU_MARKETING_APP_ID",     "")
 MARKETING_APP_SECRET = os.environ.get("FEISHU_MARKETING_APP_SECRET", "")
 
+# 周日报机器人凭证
+WEEKLY_DAILY_APP_ID     = os.environ.get("FEISHU_WEEKLY_DAILY_APP_ID",     "")
+WEEKLY_DAILY_APP_SECRET = os.environ.get("FEISHU_WEEKLY_DAILY_APP_SECRET", "")
+
 # 去重
 _processed: dict = {}
 _DEDUP_TTL = 300
@@ -61,7 +67,7 @@ def _is_processed(msg_id: str, mode: str = "daily") -> bool:
     _processed[key] = now
     return False
 
-def get_token(weekly=False, province=False, elec=False, elec_load=False, marketing=False):
+def get_token(weekly=False, province=False, elec=False, elec_load=False, marketing=False, weekly_daily=False):
     if marketing:
         aid, asc = MARKETING_APP_ID, MARKETING_APP_SECRET
     elif elec_load:
@@ -70,6 +76,8 @@ def get_token(weekly=False, province=False, elec=False, elec_load=False, marketi
         aid, asc = ELEC_APP_ID, ELEC_APP_SECRET
     elif province:
         aid, asc = PROVINCE_APP_ID, PROVINCE_APP_SECRET
+    elif weekly_daily:
+        aid, asc = WEEKLY_DAILY_APP_ID, WEEKLY_DAILY_APP_SECRET
     elif weekly:
         aid, asc = WEEKLY_APP_ID, WEEKLY_APP_SECRET
     else:
@@ -314,6 +322,53 @@ def process_province_in_background(file_key: str, msg_id: str, chat_id: str, fil
             except: pass
 
 
+def process_weekly_daily_file(file_key: str, msg_id: str, chat_id: str):
+    """下载 docx → 自动检测日报/周报 → 出图 → 回传两张图"""
+    out_path = None
+    tmp_docx = None
+    try:
+        token   = get_token(weekly_daily=True)
+        out_dir = os.path.join(os.path.dirname(__file__), "output")
+        os.makedirs(out_dir, exist_ok=True)
+
+        url = f"https://open.feishu.cn/open-apis/im/v1/messages/{msg_id}/resources/{file_key}"
+        r = requests.get(url, headers={"Authorization": f"Bearer {token}"},
+                         params={"type": "file"}, timeout=30)
+        print(f"[weekly_daily] 下载状态={r.status_code} 大小={len(r.content)}")
+        if r.status_code != 200:
+            send_message(chat_id, "text", {"text": f"❌ 文件下载失败({r.status_code})"}, token)
+            return
+
+        tmp_docx = os.path.join(out_dir, f"tmp_wd_{file_key}.docx")
+        with open(tmp_docx, "wb") as f:
+            f.write(r.content)
+
+        data      = parse_weekly_daily_docx(tmp_docx)
+        rtype     = data.get("report_type", "weekly")
+        ts        = datetime.now().strftime('%Y%m%d%H%M%S')
+        out_path  = os.path.join(out_dir, f"weekly_daily_{ts}.png")
+        paths     = _run_once(render_weekly_daily_png, data, output_path=out_path)
+
+        for p in (paths if isinstance(paths, tuple) else (paths,)):
+            if not p: continue
+            key = upload_image(p, token)
+            if key:
+                send_message(chat_id, "image", {"image_key": key}, token)
+            else:
+                send_message(chat_id, "text", {"text": "❌ 图片上传失败"}, token)
+            if os.path.exists(p): os.remove(p)
+        _cleanup_old_images(out_dir, keep=3)
+
+    except Exception as e:
+        import traceback
+        print(f"[weekly_daily error] {traceback.format_exc()}")
+        try: send_message(chat_id, "text", {"text": f"❌ 解析失败：{str(e)}"}, get_token(weekly_daily=True))
+        except: pass
+    finally:
+        if tmp_docx and os.path.exists(tmp_docx):
+            os.remove(tmp_docx)
+
+
 def process_marketing_template(file_key: str, msg_id: str, chat_id: str):
     """下载 docx → 保存为该群模板"""
     try:
@@ -393,6 +448,11 @@ async def webhook_marketing(request: Request, background_tasks: BackgroundTasks)
     """营销专业基本情况机器人"""
     return await _handle_webhook(request, background_tasks, mode="marketing")
 
+@app.post("/webhook/weekly_daily")
+async def webhook_weekly_daily(request: Request, background_tasks: BackgroundTasks):
+    """周日报机器人（自动识别日报/周报）"""
+    return await _handle_webhook(request, background_tasks, mode="weekly_daily")
+
 async def _handle_webhook(request: Request, background_tasks: BackgroundTasks, mode: str):
     body = await request.json()
 
@@ -427,6 +487,10 @@ async def _handle_webhook(request: Request, background_tasks: BackgroundTasks, m
             print(f"[file] mode={mode} file_key={file_key} file_name={file_name}")
             if not file_key:
                 pass
+            elif mode == "weekly_daily" and (file_name.lower().endswith(".docx") or not file_name):
+                token = get_token(weekly_daily=True)
+                send_message(chat_id, "text", {"text": "⚙️ 正在解析文档并生成图片，请稍候..."}, token)
+                background_tasks.add_task(process_weekly_daily_file, file_key, msg_id, chat_id)
             elif mode == "marketing" and (file_name.lower().endswith(".docx") or not file_name):
                 # 保存为该群模板
                 token = get_token(marketing=True)
@@ -447,7 +511,7 @@ async def _handle_webhook(request: Request, background_tasks: BackgroundTasks, m
 
     # weekly / province 路由只处理文件，文字消息一律忽略
     # weekly / province 路由只处理文件，文字消息忽略
-    if mode in ("weekly", "province"): return Response("ok")
+    if mode in ("weekly", "province", "weekly_daily"): return Response("ok")
 
     # 文字消息：需要 @ 机器人
     if not mentions: return Response("ok")
