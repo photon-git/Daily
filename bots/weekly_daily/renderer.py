@@ -14,11 +14,12 @@ _NO_LINE_START = set('，。！？、；：）》」』”…—～·,.!?;:)]}')
 _NO_LINE_END   = set('（《「『“([{')
 
 _HERE     = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-JB_PATH    = os.path.join(_HERE, "assets/jiaobiao.png")
-WEEKBG_PATH= os.path.join(_HERE, "assets/weekbg.png")
-TOP_PATH   = os.path.join(_HERE, "assets/top.png")
-KUANG_PATH = os.path.join(_HERE, "assets/kuang.png")
-OUT_DIR   = os.path.join(_HERE, "output")
+JB_PATH       = os.path.join(_HERE, "assets/jiaobiao.png")
+WEEKBG_PATH   = os.path.join(_HERE, "assets/weekbg.png")
+TOP_PATH      = os.path.join(_HERE, "assets/top.png")
+KUANG_DAILY   = os.path.join(_HERE, "assets/daily_kuang.png")
+KUANG_WEEKLY  = os.path.join(_HERE, "assets/weekly_kuang.png")
+OUT_DIR       = os.path.join(_HERE, "output")
 FONTS_DIR = os.path.join(_HERE, "fonts")
 FONT_R    = os.path.join(FONTS_DIR, "msyh.ttf")
 FONT_B    = os.path.join(FONTS_DIR, "msyh-b.ttf")
@@ -105,6 +106,9 @@ def render_weekly_png(data: dict, output_path: str = None) -> str:
     }
     """
 
+    report_type = data.get("report_type", "weekly")
+    KUANG_PATH = KUANG_DAILY if report_type == "daily" else KUANG_WEEKLY
+
     # ── 字体 ──────────────────────────────────────────
     YSBT = os.path.join(FONTS_DIR, "ysbt.ttf")
     f_main_title = ImageFont.truetype(YSBT, 108) if os.path.exists(YSBT) else _font(108, bold=True)
@@ -182,7 +186,7 @@ def render_weekly_png(data: dict, output_path: str = None) -> str:
                 _y[0] += 4
             for item in sec.get("items", []):
                 _y[0] += 10
-                sim_wrap(f"{item['index']}. {item['title']}", f_item_title)
+                sim_wrap(f"{item['index']}. {item['title']}" if item.get('index') and item['index'] != '' else item['title'], f_item_title)
                 _y[0] += 2
                 body_runs = item.get("body_runs")
                 if body_runs:
@@ -327,7 +331,7 @@ def render_weekly_png(data: dict, output_path: str = None) -> str:
 
         for item in sec.get("items", []):
             y += 10
-            title_text = f"{item['index']}. {item['title']}"
+            title_text = f"{item['index']}. {item['title']}" if item.get('index') and item['index'] != '' else item['title']
             draw_text_wrapped(title_text, f_item_title, ITEM_BLUE)
             y += 2
 
@@ -347,8 +351,8 @@ def render_weekly_png(data: dict, output_path: str = None) -> str:
         y += 6
 
     # ── 最终合成：背景 → 边框 → 文字 ────────────────────
-    actual_h = y + 80
-    text_img = img.crop((0, 0, W, actual_h))   # 文字层
+    actual_h = min(y + 80, total_h)   # 不超过画布高度，避免 crop 出黑边
+    text_img = img.crop((0, 0, W, actual_h))
 
     # 1. 背景层
     final = Image.new("RGB", (W, actual_h), BG)
@@ -362,9 +366,10 @@ def render_weekly_png(data: dict, output_path: str = None) -> str:
             final.paste(bg, (0, top_h))
 
     # 2. 边框层
+    KUANG_BOTTOM_PAD = 40   # kuang 距离底部留白
     if os.path.exists(KUANG_PATH):
         kuang2 = Image.open(KUANG_PATH).convert("RGBA")
-        box_h2 = actual_h - CONTENT_TOP
+        box_h2 = actual_h - CONTENT_TOP - KUANG_BOTTOM_PAD
         kuang2 = kuang2.resize((BOX_W, box_h2), Image.LANCZOS)
         final.paste(kuang2, (BOX_X, CONTENT_TOP), kuang2)
 
@@ -410,7 +415,7 @@ def render_weekly_png(data: dict, output_path: str = None) -> str:
             final_nojb.paste(bg2, (0, top_h))
     if os.path.exists(KUANG_PATH):
         kuang3 = Image.open(KUANG_PATH).convert("RGBA")
-        kuang3 = kuang3.resize((BOX_W, actual_h - CONTENT_TOP), Image.LANCZOS)
+        kuang3 = kuang3.resize((BOX_W, actual_h - CONTENT_TOP - KUANG_BOTTOM_PAD), Image.LANCZOS)
         final_nojb.paste(kuang3, (BOX_X, CONTENT_TOP), kuang3)
     final_nojb = final_nojb.convert("RGBA")
     final_nojb.paste(txt_layer, (0, 0), txt_layer)

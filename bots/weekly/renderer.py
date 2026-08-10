@@ -17,7 +17,7 @@ _HERE     = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fi
 JB_PATH    = os.path.join(_HERE, "assets/jiaobiao.png")
 WEEKBG_PATH= os.path.join(_HERE, "assets/weekbg.png")
 TOP_PATH   = os.path.join(_HERE, "assets/top.png")
-KUANG_PATH = os.path.join(_HERE, "assets/kuang.png")
+KUANG_PATH = os.path.join(_HERE, "assets/weekly_kuang.png")
 OUT_DIR   = os.path.join(_HERE, "output")
 FONTS_DIR = os.path.join(_HERE, "fonts")
 FONT_R    = os.path.join(FONTS_DIR, "msyh.ttf")
@@ -345,7 +345,7 @@ def render_weekly_png(data: dict, output_path: str = None) -> str:
         y += 6
 
     # ── 最终合成：背景 → 边框 → 文字 ────────────────────
-    actual_h = y + 80
+    actual_h = min(y + 80, total_h)
     text_img = img.crop((0, 0, W, actual_h))   # 文字层
 
     # 1. 背景层
@@ -360,9 +360,10 @@ def render_weekly_png(data: dict, output_path: str = None) -> str:
             final.paste(bg, (0, top_h))
 
     # 2. 边框层
+    KUANG_BOTTOM_PAD = 40
     if os.path.exists(KUANG_PATH):
         kuang2 = Image.open(KUANG_PATH).convert("RGBA")
-        box_h2 = actual_h - CONTENT_TOP
+        box_h2 = actual_h - CONTENT_TOP - KUANG_BOTTOM_PAD
         kuang2 = kuang2.resize((BOX_W, box_h2), Image.LANCZOS)
         final.paste(kuang2, (BOX_X, CONTENT_TOP), kuang2)
 
@@ -408,7 +409,7 @@ def render_weekly_png(data: dict, output_path: str = None) -> str:
             final_nojb.paste(bg2, (0, top_h))
     if os.path.exists(KUANG_PATH):
         kuang3 = Image.open(KUANG_PATH).convert("RGBA")
-        kuang3 = kuang3.resize((BOX_W, actual_h - CONTENT_TOP), Image.LANCZOS)
+        kuang3 = kuang3.resize((BOX_W, actual_h - CONTENT_TOP - KUANG_BOTTOM_PAD), Image.LANCZOS)
         final_nojb.paste(kuang3, (BOX_X, CONTENT_TOP), kuang3)
     final_nojb = final_nojb.convert("RGBA")
     final_nojb.paste(txt_layer, (0, 0), txt_layer)

@@ -153,7 +153,13 @@ def parse_weekly_docx(docx_path: str) -> dict:
             source = source_match.group(1) if source_match else ""
             clean_title = re.sub(r'\s*[（(][^）)]+[）)]\s*$', '', text).strip()
             idx_match = re.match(r'^(\d+)[\.．]\s*', clean_title)
-            index = idx_match.group(1) if idx_match else str(len(current_section["items"]) + 1)
+            # 日报模式：原文没有序号就不加序号
+            if idx_match:
+                index = idx_match.group(1)
+            elif not has_section_headings:
+                index = ""
+            else:
+                index = str(len(current_section["items"]) + 1)
             item_title = re.sub(r'^\d+[\.．]\s*', '', clean_title)
             current_item = {
                 "index": index,
