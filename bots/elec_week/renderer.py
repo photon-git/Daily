@@ -160,7 +160,7 @@ def render_elec_week_png(data: dict, output_path: str = None) -> str:
     notes_text = data.get("notes", "")
     tmp_draw = ImageDraw.Draw(Image.new("RGB", (W, 50)))
     notes_lines = []
-    LINE_SP_NOTES = 8  # 行间距
+    LINE_SP_NOTES = 4  # 行间距
     if notes_text:
         # 按 \n 分段（DeepSeek 已处理好），从第二段起换行
         import re as _re
@@ -334,7 +334,7 @@ def render_elec_week_png(data: dict, output_path: str = None) -> str:
     ny = NOTES_Y
     for line in notes_lines:
         if line is None:
-            ny += nl_h // 2  # 段落间距
+            ny += 6  # 段落间距
         else:
             draw.text((NOTES_X, ny), line, font=f_notes, fill=C_NOTES)
             ny += nl_h + LINE_SP_NOTES
