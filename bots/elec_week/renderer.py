@@ -334,7 +334,7 @@ def render_elec_week_png(data: dict, output_path: str = None) -> str:
     ny = NOTES_Y
     for line in notes_lines:
         if line is None:
-            ny += 6  # 段落间距
+            ny += LINE_SP_NOTES  # 段落间距与行间距一致
         else:
             draw.text((NOTES_X, ny), line, font=f_notes, fill=C_NOTES)
             ny += nl_h + LINE_SP_NOTES
