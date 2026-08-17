@@ -28,7 +28,7 @@ SYSTEM_PROMPT = """你是电力系统电量数据解析专家。
 - year.collect_yoy：年累计采集电量同比
 - year.sale：年累计售电量
 - year.sale_yoy：年累计售电量同比
-- notes：备注文字（原文照录，无则填""）
+- notes：备注文字，原文照录，若有多条（以"1.""2."或"一是""二是"等分隔），每条之间用\n分隔，无则填""
 
 注意：
 - 数值只保留数字和小数点，不含单位
@@ -56,16 +56,24 @@ def parse_elec_week(raw_text: str) -> dict:
         api_key=os.environ.get("DEEPSEEK_API_KEY"),
         base_url="https://api.deepseek.com",
     )
-    response = client.chat.completions.create(
-        model="deepseek-v4-pro",
-        max_tokens=1000,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user",   "content": raw_text},
-        ],
-        response_format={"type": "json_object"},
-    )
-    text = response.choices[0].message.content.strip()
+    for attempt in range(3):
+        response = client.chat.completions.create(
+            model="deepseek-v4-pro",
+            max_tokens=2000,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user",   "content": raw_text},
+            ],
+            response_format={"type": "json_object"},
+        )
+        text = response.choices[0].message.content
+        text = text.strip() if text else ""
+        print(f"[elec_week parser] attempt={attempt+1} finish_reason={response.choices[0].finish_reason}")
+        print(f"[elec_week parser] raw response: {text[:300]}")
+        if text:
+            break
+    if not text:
+        raise ValueError("DeepSeek 连续返回空内容")
     match = re.search(r'\{.*\}', text, re.DOTALL)
     return json.loads(match.group() if match else text)
 

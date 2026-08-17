@@ -160,19 +160,33 @@ def render_elec_week_png(data: dict, output_path: str = None) -> str:
     notes_text = data.get("notes", "")
     tmp_draw = ImageDraw.Draw(Image.new("RGB", (W, 50)))
     notes_lines = []
+    LINE_SP_NOTES = 8  # 行间距
     if notes_text:
-        buf = "备注：" + notes_text
-        cur = ""
-        for ch in buf:
-            if _tw(tmp_draw, cur+ch, f_notes) > TABLE_W - mm(2):
-                notes_lines.append(cur); cur = ch
-            else:
-                cur += ch
-        if cur: notes_lines.append(cur)
+        # 按 \n 分段（DeepSeek 已处理好），从第二段起换行
+        import re as _re
+        parts = [p.strip() for p in notes_text.split('\n') if p.strip()]
+        if not parts:
+            parts = _re.split(r'(?=二是|三是|四是|五是|六是|(?<!\d)[2-9]\.)', notes_text)
+        for pi, part in enumerate(parts):
+            if not part.strip():
+                continue
+            prefix = "备注：" if pi == 0 else ""
+            buf = prefix + part.strip()
+            cur = ""
+            for ch in buf:
+                if _tw(tmp_draw, cur + ch, f_notes) > TABLE_W - mm(2):
+                    notes_lines.append(cur); cur = ch
+                else:
+                    cur += ch
+            if cur:
+                notes_lines.append(cur)
+            if pi < len(parts) - 1:
+                notes_lines.append(None)  # 段落分隔标记
     # 备注颜色: schemeClr bg1 lumMod=50% → white*50% = #808080
     C_NOTES = (128, 128, 128)
-    nl_h = _th(tmp_draw, "测", f_notes)  # spcPct=100%，无额外行距
-    notes_block_h = len(notes_lines) * nl_h if notes_lines else 0
+    nl_h = _th(tmp_draw, "测", f_notes)
+    notes_block_h = sum(nl_h + LINE_SP_NOTES if ln is not None else nl_h // 2
+                        for ln in notes_lines) if notes_lines else 0
 
     total_h = NOTES_Y + notes_block_h + mm(18)
 
@@ -319,8 +333,11 @@ def render_elec_week_png(data: dict, output_path: str = None) -> str:
     # ── 备注 (TextBox 3, sz=32pt, align=LEFT) ────────────────────────────────
     ny = NOTES_Y
     for line in notes_lines:
-        draw.text((NOTES_X, ny), line, font=f_notes, fill=C_NOTES)
-        ny += nl_h
+        if line is None:
+            ny += nl_h // 2  # 段落间距
+        else:
+            draw.text((NOTES_X, ny), line, font=f_notes, fill=C_NOTES)
+            ny += nl_h + LINE_SP_NOTES
 
     # 裁剪到实际高度
     final_h = ny + mm(12)
