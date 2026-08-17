@@ -59,7 +59,7 @@ def parse_elec_week(raw_text: str) -> dict:
     for attempt in range(3):
         response = client.chat.completions.create(
             model="deepseek-v4-pro",
-            max_tokens=2000,
+            max_tokens=4000,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user",   "content": raw_text},
@@ -68,9 +68,11 @@ def parse_elec_week(raw_text: str) -> dict:
         )
         text = response.choices[0].message.content
         text = text.strip() if text else ""
-        print(f"[elec_week parser] attempt={attempt+1} finish_reason={response.choices[0].finish_reason}")
+        finish = response.choices[0].finish_reason
+        print(f"[elec_week parser] attempt={attempt+1} finish_reason={finish}")
         print(f"[elec_week parser] raw response: {text[:300]}")
-        if text:
+        if text and finish != "length":
+            break
             break
     if not text:
         raise ValueError("DeepSeek 连续返回空内容")

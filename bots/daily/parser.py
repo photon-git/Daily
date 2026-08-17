@@ -61,21 +61,25 @@ def parse_daily_report(raw_text: str) -> dict:
         api_key=os.environ.get("DEEPSEEK_API_KEY"),
         base_url="https://api.deepseek.com",
     )
-    response = client.chat.completions.create(
-        model="deepseek-v4-pro",
-        max_tokens=4000,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user",   "content": raw_text},
-        ],
-        response_format={"type": "json_object"},
-    )
-    text = response.choices[0].message.content
-    text = text.strip() if text else ""
-    print(f"[daily parser] finish_reason={response.choices[0].finish_reason}")
-    print(f"[daily parser] raw response: {text[:500]}")
+    for attempt in range(3):
+        response = client.chat.completions.create(
+            model="deepseek-v4-pro",
+            max_tokens=4000,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user",   "content": raw_text},
+            ],
+            response_format={"type": "json_object"},
+        )
+        text = response.choices[0].message.content
+        text = text.strip() if text else ""
+        finish = response.choices[0].finish_reason
+        print(f"[daily parser] attempt={attempt+1} finish_reason={finish}")
+        print(f"[daily parser] raw response: {text[:500]}")
+        if text and finish != "length":
+            break
     if not text:
-        raise ValueError("DeepSeek 返回空内容")
+        raise ValueError("DeepSeek 连续返回空内容")
     match = re.search(r'\{.*\}', text, re.DOTALL)
     return json.loads(match.group() if match else text)
 
