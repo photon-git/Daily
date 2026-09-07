@@ -63,7 +63,7 @@ def parse_daily_report(raw_text: str) -> dict:
     )
     for attempt in range(3):
         response = client.chat.completions.create(
-            model="deepseek-v4-pro",
+            model="deepseek-v4-flash",
             max_tokens=4000,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
