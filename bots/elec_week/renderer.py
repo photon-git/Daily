@@ -209,7 +209,7 @@ def render_elec_week_png(data: dict, output_path: str = None) -> str:
     lh2 = _th(draw, "测", f_logo)
     total_logo_txt = lh1 + line_gap + lh2
     ly = LTEXT_Y + (LTEXT_H - total_logo_txt) // 2
-    for txt, dy in [("用电需求分析预测", 0), ("（ 全国用电监测分析 ）", lh1 + line_gap)]:
+    for txt, dy in [("用电需求分析预测", 0), ("（全国用电监测分析）", lh1 + line_gap)]:
         lw = _tw(draw, txt, f_logo)
         draw.text((LTEXT_X + (LTEXT_W - lw)//2, ly + dy), txt, font=f_logo, fill=C_LOGO_TXT)
 
