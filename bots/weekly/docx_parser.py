@@ -5,6 +5,7 @@ weekly_docx_parser.py
 """
 
 import re
+from datetime import date, timedelta
 from docx import Document
 
 # Unicode 上标/下标字符 → 普通数字/字母映射
@@ -50,6 +51,13 @@ def parse_weekly_docx(docx_path: str) -> dict:
             time_range = f"{y}.{m1}.{d1}-{y}.{m2}.{d2}"
         else:
             time_range = t.strip("（）()")
+
+    # 如果 word 里没提取到日期范围，自动计算本周周一到周日
+    if not time_range or not re.search(r'\d', time_range):
+        today = date.today()
+        monday = today - timedelta(days=today.weekday())
+        sunday = monday + timedelta(days=6)
+        time_range = f"{monday.year}.{monday.month}.{monday.day}-{sunday.year}.{sunday.month}.{sunday.day}"
 
     # 跳过目录（找到正文开始位置）
     # 正文特征：章节标题"一、二、三、四、"不含页码
