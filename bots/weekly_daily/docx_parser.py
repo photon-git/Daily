@@ -102,6 +102,13 @@ def parse_weekly_docx(docx_path: str) -> dict:
 
     # 跳过目录（找到正文开始位置）
     # 正文特征：章节标题"一、二、三、四、"不含页码，或加粗非目录段落
+    # 找"目录"位置作为跳过起点；没目录就从第 2 段起（跳过标题）
+    toc_end = 0
+    for i, p in enumerate(paras):
+        if p.text.strip() == '目录':
+            toc_end = i
+            break
+
     start_idx = 0
     for i, p in enumerate(paras):
         text = p.text.strip()
@@ -109,10 +116,12 @@ def parse_weekly_docx(docx_path: str) -> dict:
         if re.match(r'^[一二三四五六七八九十]、', text) and '\t' not in text:
             start_idx = i
             break
-        # 无章节标题的情况（日报）：跳过目录后第一个加粗段落
-        if i > 1 and '\t' not in text and text != '目录':
+        # 无章节标题的情况（日报）：目录之后第一个"编号条目"或加粗非目录段落
+        min_i = toc_end + 1 if toc_end else 1
+        if i >= min_i and '\t' not in text and text != '目录':
             is_bold = any(r.bold for r in p.runs if r.text.strip())
-            if is_bold and not re.match(r'^[一二三四五六七八九十]、', text):
+            is_numbered = bool(re.match(r'^\d+[\.．]', text))
+            if (is_bold or is_numbered) and not re.match(r'^[一二三四五六七八九十]、', text):
                 start_idx = i
                 break
 
@@ -166,8 +175,10 @@ def parse_weekly_docx(docx_path: str) -> dict:
             source = source_match.group(1) if source_match else ""
             clean_title = re.sub(r'\s*[（(][^）)]+[）)]\s*$', '', text).strip()
             idx_match = re.match(r'^(\d+)[\.．]\s*', clean_title)
-            # 日报模式：原文没有序号就不加序号
-            if idx_match:
+            # 日报模式：永远不加序号
+            if report_type == 'daily':
+                index = ""
+            elif idx_match:
                 index = idx_match.group(1)
             elif not has_section_headings:
                 index = ""
