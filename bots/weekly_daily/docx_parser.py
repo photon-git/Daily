@@ -4,8 +4,8 @@ weekly_daily_docx_parser.py
 自动检测日报（单日）或周报（多日），输出结构化 dict
 """
 
-import re
-from datetime import date
+import re, os
+from datetime import date, timedelta
 from docx import Document
 
 # Unicode 上标/下标字符 → 普通数字/字母映射
@@ -65,13 +65,15 @@ def parse_weekly_docx(docx_path: str) -> dict:
     doc = Document(docx_path)
     paras = [p for p in doc.paragraphs if p.text.strip()]
 
+    # 用文件名判断日报/周报：包含"每周" → 周报，其他 → 日报
+    fname = os.path.basename(docx_path)
+    report_type = 'weekly' if '每周' in fname else 'daily'
+
     # 提取标题和时间
     title = paras[0].text.strip() if paras else "重要政策信息"
     time_range = ""
-    raw_time_text = ""
     if len(paras) > 1:
         t = paras[1].text.strip()
-        raw_time_text = t
         m = re.search(r'(\d{4})年(\d+)月(\d+)日.+?(\d+)月(\d+)日', t)
         if m:
             y, m1, d1, m2, d2 = m.groups()
@@ -85,7 +87,16 @@ def parse_weekly_docx(docx_path: str) -> dict:
             else:
                 time_range = re.sub(r'^[（(]?时间[：:]\s*', '', t).strip("（）()")
 
-    report_type = detect_report_type(raw_time_text)
+    # word 里没有日期时：周报补本周一到周日，日报补今天
+    if not time_range or not re.search(r'\d', time_range):
+        today = date.today()
+        if report_type == 'weekly':
+            monday = today - timedelta(days=today.weekday())
+            sunday = monday + timedelta(days=6)
+            time_range = f"{monday.year}.{monday.month}.{monday.day}-{sunday.year}.{sunday.month}.{sunday.day}"
+        else:
+            time_range = f"{today.year}.{today.month}.{today.day}"
+
 
     # 跳过目录（找到正文开始位置）
     # 正文特征：章节标题"一、二、三、四、"不含页码，或加粗非目录段落
