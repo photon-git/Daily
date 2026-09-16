@@ -65,21 +65,23 @@ def parse_weekly_docx(docx_path: str) -> dict:
     doc = Document(docx_path)
     paras = [p for p in doc.paragraphs if p.text.strip()]
 
-    # 用文件名判断日报/周报：包含"每周" → 周报，其他 → 日报
-    fname = os.path.basename(docx_path)
-    report_type = 'weekly' if '每周' in fname else 'daily'
+    # 用第一段（标题）判断日报/周报：包含"每周" → 周报，其他 → 日报
+    first_line = paras[0].text.strip() if paras else ""
+    report_type = 'weekly' if '每周' in first_line else 'daily'
 
     # 提取标题和时间
     title = paras[0].text.strip() if paras else "重要政策信息"
     time_range = ""
     if len(paras) > 1:
         t = paras[1].text.strip()
-        m = re.search(r'(\d{4})年(\d+)月(\d+)日.+?(\d+)月(\d+)日', t)
-        if m:
-            y, m1, d1, m2, d2 = m.groups()
-            time_range = f"{y}.{m1}.{d1}-{y}.{m2}.{d2}"
+        if report_type == 'weekly':
+            # 周报：只识别两个日期
+            m = re.search(r'(\d{4})年(\d+)月(\d+)日.+?(\d+)月(\d+)日', t)
+            if m:
+                y, m1, d1, m2, d2 = m.groups()
+                time_range = f"{y}.{m1}.{d1}-{y}.{m2}.{d2}"
         else:
-            # 单日：提取 年月日
+            # 日报：识别单个年月日
             m2 = re.search(r'(\d{4})年(\d+)月(\d+)日', t)
             if m2:
                 y, mo, d = m2.groups()
