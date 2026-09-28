@@ -105,6 +105,23 @@ def render_weekly_png(data: dict, output_path: str = None) -> str:
     }
     """
 
+    # 字符归一化：把雅黑显示异常的符号替换为等价字符
+    _CHAR_MAP = {'·': '・', '‧': '・', '･': '・'}
+    def _norm(s):
+        if not s: return s
+        for k, v in _CHAR_MAP.items():
+            s = s.replace(k, v)
+        return s
+    import copy
+    data = copy.deepcopy(data)
+    for sec in data.get("sections", []):
+        sec["heading"] = _norm(sec.get("heading", ""))
+        for item in sec.get("items", []):
+            item["title"] = _norm(item.get("title", ""))
+            item["body"] = _norm(item.get("body", ""))
+            if item.get("body_runs"):
+                item["body_runs"] = [(_norm(t), b) for t, b in item["body_runs"]]
+
     # ── 字体 ──────────────────────────────────────────
     YSBT = os.path.join(FONTS_DIR, "ysbt.ttf")
     f_main_title = ImageFont.truetype(YSBT, 108) if os.path.exists(YSBT) else _font(108, bold=True)

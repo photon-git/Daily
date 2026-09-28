@@ -109,6 +109,32 @@ def render_weekly_png(data: dict, output_path: str = None) -> str:
     report_type = data.get("report_type", "weekly")
     KUANG_PATH = KUANG_DAILY if report_type == "daily" else KUANG_WEEKLY
 
+    # 字符归一化：把雅黑显示异常的符号替换为等价字符
+    _CHAR_MAP = {
+        '·': '·',   # middle dot → 拉丁 middle dot（雅黑内实为空心/极小，替换为宽度可辨的中点）
+        '‧': '·',   # hyphenation point
+        '･': '·',   # halfwidth katakana middle dot
+    }
+    # 实际雅黑对 U+00B7 支持但字形太小，替换成 U+30FB（片假名中点，明显可见）
+    _CHAR_MAP['·'] = '・'
+
+    def _norm(s):
+        if not s: return s
+        for k, v in _CHAR_MAP.items():
+            s = s.replace(k, v)
+        return s
+
+    # 归一化 data
+    import copy
+    data = copy.deepcopy(data)
+    for sec in data.get("sections", []):
+        sec["heading"] = _norm(sec.get("heading", ""))
+        for item in sec.get("items", []):
+            item["title"] = _norm(item.get("title", ""))
+            item["body"] = _norm(item.get("body", ""))
+            if item.get("body_runs"):
+                item["body_runs"] = [(_norm(t), b) for t, b in item["body_runs"]]
+
     # ── 字体 ──────────────────────────────────────────
     YSBT = os.path.join(FONTS_DIR, "ysbt.ttf")
     f_main_title = ImageFont.truetype(YSBT, 108) if os.path.exists(YSBT) else _font(108, bold=True)
