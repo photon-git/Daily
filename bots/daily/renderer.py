@@ -48,15 +48,19 @@ TBL_W   = 1850
 TBL_X   = TBL_PAD
 RADIUS  = 40
 
-# 预测表列宽：标签 | 最大负荷 | 降温数值 | 降温占比
+# 秋季预测表：标签 | 最大负荷；降温负荷列暂时停用。
+# 夏季恢复：取消下方夏季代码注释，停用秋季 COL2_W、FC_TH1、FC_TH2 赋值。
 COL1_W = 460
-COL2_W = 516
-COL3_W = 437
-COL4_W = 437
+# COL2_W = 516
+# COL3_W = 437
+# COL4_W = 437
+COL2_W = TBL_W - COL1_W
 
 # 预测表行高
-FC_TH1  = 124    # 第一层表头（"其中，降温负荷"）
-FC_TH2  = 108    # 第二层表头（列名）
+# FC_TH1 = 124   # 降温负荷分组表头暂时停用
+# FC_TH2 = 108   # 夏季第二层表头
+FC_TH1  = 0
+FC_TH2  = 232    # 保留原表头总高度
 FC_ROW  = 200    # 数据行
 
 # 复盘表行高
@@ -209,8 +213,9 @@ def render_daily_png(data: dict, output_path: str = None) -> str:
         rows  = data.get("forecast", [])
         tbl_h = fc_tbl_h
         x_c1  = TBL_X + COL1_W
-        x_c2  = x_c1  + COL2_W
-        x_c3  = x_c2  + COL3_W
+        # 夏季列坐标
+        # x_c2 = x_c1 + COL2_W
+        # x_c3 = x_c2 + COL3_W
 
         clip = FancyBboxPatch((TBL_X, ys), TBL_W, tbl_h,
                               boxstyle=f"round,pad=0,rounding_size={RADIUS}",
@@ -221,37 +226,38 @@ def render_daily_png(data: dict, output_path: str = None) -> str:
         # ── 表头（两层高度合计）─────────────────────────────
         TH_TOTAL = FC_TH1 + FC_TH2
 
-        # 第一层：标签列跨两层、最大负荷列跨两层、右侧降温负荷上层跨两列
+        # 秋季仅显示标签和最大负荷两列。
         C(ax.add_patch(mpatches.Rectangle((TBL_X, ys), COL1_W, TH_TOTAL,
                        facecolor=TEAL, edgecolor=TEAL_L, lw=0.8, zorder=3)))
         C(ax.add_patch(mpatches.Rectangle((x_c1,  ys), COL2_W, TH_TOTAL,
                        facecolor=TEAL, edgecolor=TEAL_L, lw=0.8, zorder=3)))
-        C(ax.add_patch(mpatches.Rectangle((x_c2,  ys), COL3_W+COL4_W, FC_TH1,
-                       facecolor=TEAL, edgecolor=TEAL_L, lw=0.8, zorder=3)))
-        # 第二层：降温负荷下两列
-        C(ax.add_patch(mpatches.Rectangle((x_c2, ys+FC_TH1), COL3_W, FC_TH2,
-                       facecolor=TEAL, edgecolor=TEAL_L, lw=0.8, zorder=3)))
-        C(ax.add_patch(mpatches.Rectangle((x_c3, ys+FC_TH1), COL4_W, FC_TH2,
-                       facecolor=TEAL, edgecolor=TEAL_L, lw=0.8, zorder=3)))
+        # 夏季降温负荷分组表头及第二层表头
+        # C(ax.add_patch(mpatches.Rectangle((x_c2, ys), COL3_W+COL4_W, FC_TH1,
+        #                facecolor=TEAL, edgecolor=TEAL_L, lw=0.8, zorder=3)))
+        # C(ax.add_patch(mpatches.Rectangle((x_c2, ys+FC_TH1), COL3_W, FC_TH2,
+        #                facecolor=TEAL, edgecolor=TEAL_L, lw=0.8, zorder=3)))
+        # C(ax.add_patch(mpatches.Rectangle((x_c3, ys+FC_TH1), COL4_W, FC_TH2,
+        #                facecolor=TEAL, edgecolor=TEAL_L, lw=0.8, zorder=3)))
 
         # 表头文字
-        ax.text(x_c1 + COL2_W/2+ 18, ys + TH_TOTAL/2, "最大负荷（亿千瓦）",
+        ax.text(x_c1 + COL2_W/2, ys + TH_TOTAL/2, "最大负荷（亿千瓦）",
                 ha='center', va='center', fontproperties=_fp(40,'b'),
                 color=WHITE, zorder=5, linespacing=1.5)
-        ax.text(x_c2 + (COL3_W+COL4_W)/2, ys + FC_TH1/2, "其中，降温负荷",
-                ha='center', va='center', fontproperties=_fp(40,'b'), color=WHITE, zorder=5)
-        ax.text(x_c2 + COL3_W/2 + 18, ys + FC_TH1 + FC_TH2/2, "数值（亿千瓦）",
-                ha='center', va='center', fontproperties=_fp(38,'b'), color=WHITE, zorder=5)
-        ax.text(x_c3 + COL4_W/2, ys + FC_TH1 + FC_TH2/2, "占比",
-                ha='center', va='center', fontproperties=_fp(38,'b'), color=WHITE, zorder=5)
+        # 降温负荷分组表头及数值、占比表头暂时停用。
+        # ax.text(x_c2 + (COL3_W+COL4_W)/2, ys + FC_TH1/2, "其中，降温负荷",
+        #         ha='center', va='center', fontproperties=_fp(40,'b'), color=WHITE, zorder=5)
+        # ax.text(x_c2 + COL3_W/2 + 18, ys + FC_TH1 + FC_TH2/2, "数值（亿千瓦）",
+        #         ha='center', va='center', fontproperties=_fp(38,'b'), color=WHITE, zorder=5)
+        # ax.text(x_c3 + COL4_W/2, ys + FC_TH1 + FC_TH2/2, "占比",
+        #         ha='center', va='center', fontproperties=_fp(38,'b'), color=WHITE, zorder=5)
 
         # 数据行
         for i, row in enumerate(rows):
             y0       = ys + FC_TH1 + FC_TH2 + i * FC_ROW
             is_last  = (i == len(rows) - 1)
             val      = row.get("value",         "/")
-            cooling  = row.get("cooling_value", "")
-            ratio    = row.get("cooling_ratio",  "")
+            # cooling = row.get("cooling_value", "")
+            # ratio = row.get("cooling_ratio", "")
 
             # 标签列
             C(ax.add_patch(mpatches.Rectangle((TBL_X, y0), COL1_W, FC_ROW,
@@ -260,8 +266,9 @@ def render_daily_png(data: dict, output_path: str = None) -> str:
                     ha='center', va='center', fontproperties=_fp(36,'h'), color=DARK, zorder=3)
 
             if is_last:
-                # 预警信息：后三列合并
-                span_w = COL2_W + COL3_W + COL4_W
+                # 预警信息占据右侧内容列。
+                span_w = COL2_W
+                # span_w = COL2_W + COL3_W + COL4_W  # 夏季预警合并三列
                 C(ax.add_patch(mpatches.Rectangle((x_c1, y0), span_w, FC_ROW,
                                facecolor=CELL_W, edgecolor=BORDER, lw=0.8, zorder=2)))
                 if val and val != "/":
@@ -279,8 +286,9 @@ def render_daily_png(data: dict, output_path: str = None) -> str:
             else:
                 for xv, cw, txt, bg in [
                     (x_c1, COL2_W, val,            CELL_W),
-                    (x_c2, COL3_W, cooling or "/", CELL_B),
-                    (x_c3, COL4_W, ratio   or "/", CELL_B),
+                    # 降温负荷数值、占比单元格暂时停用。
+                    # (x_c2, COL3_W, cooling or "/", CELL_B),
+                    # (x_c3, COL4_W, ratio or "/", CELL_B),
                 ]:
                     C(ax.add_patch(mpatches.Rectangle((xv, y0), cw, FC_ROW,
                                    facecolor=bg, edgecolor=BORDER, lw=0.8, zorder=2)))
@@ -380,8 +388,11 @@ if __name__ == '__main__':
         'report_date':   '2026年6月30日',
         'dept':          '用电监测分析专班',
         'forecast': [
-            {'label': '7月1日(星期三)', 'value': '10.75', 'cooling_value': '1.62', 'cooling_ratio': '15.1%'},
-            {'label': '未来七天',       'value': '11.45', 'cooling_value': '2.28', 'cooling_ratio': '19.9%'},
+            # 夏季测试数据（恢复时替换下面两行秋季数据）
+            # {'label': '7月1日(星期三)', 'value': '10.75', 'cooling_value': '1.62', 'cooling_ratio': '15.1%'},
+            # {'label': '未来七天', 'value': '11.45', 'cooling_value': '2.28', 'cooling_ratio': '19.9%'},
+            {'label': '7月1日(星期三)', 'value': '10.75'},
+            {'label': '未来七天',       'value': '11.45'},
             {'label': '预警信息',       'value': '/', 'is_alert': True},
         ],
         'review': [{

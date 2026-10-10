@@ -7,6 +7,13 @@ Agent⑦ 日负荷预测文本解析器
 import os, json, re
 from openai import OpenAI
 
+# 夏季恢复：将以下字段说明和 JSON 示例放回 SYSTEM_PROMPT，删除秋季忽略规则。
+# 1. 明日具体日期+星期，value=最大负荷（亿千瓦，保留两位小数），cooling_value=降温负荷数值（亿千瓦，保留两位小数，无则省略），cooling_ratio=降温负荷占比（格式"15.1%"，无则省略）
+# 2. 未来七天，value=七天内最大负荷峰值，cooling_value=降温负荷数值（无则省略），cooling_ratio=降温负荷占比（无则省略）
+# cooling_value/cooling_ratio 若文中有降温负荷信息则填入，否则省略该字段
+# {"label": "6月10日(星期二)", "value": "9.83", "cooling_value": "0.70", "cooling_ratio": "7.1%"},
+# {"label": "未来七天", "value": "10.63", "cooling_value": "1.48", "cooling_ratio": "13.9%"},
+
 SYSTEM_PROMPT = """你是电力系统日负荷预测报告解析专家。
 
 从用户输入的任意格式文本中（口语、微信消息、正式报告等）提取关键信息，输出严格JSON。
@@ -16,8 +23,8 @@ SYSTEM_PROMPT = """你是电力系统日负荷预测报告解析专家。
 - report_date：报告发布日期，格式"YYYY年M月D日"（今天）
 - dept：发布部门，默认"用电监测分析专班"
 - forecast：预测表，3行固定：
-  1. 明日具体日期+星期，value=最大负荷（亿千瓦，保留两位小数），cooling_value=降温负荷数值（亿千瓦，保留两位小数，无则省略），cooling_ratio=降温负荷占比（格式"15.1%"，无则省略）
-  2. 未来七天，value=七天内最大负荷峰值，cooling_value=降温负荷数值（无则省略），cooling_ratio=降温负荷占比（无则省略）
+  1. 明日具体日期+星期，value=最大负荷（亿千瓦，保留两位小数）
+  2. 未来七天，value=七天内最大负荷峰值（亿千瓦，保留两位小数）
   3. 预警信息，value=预警内容（无则填"/"），is_alert=true
 - review：昨日复盘，每行含：
   - date：昨日日期+星期，格式"M月D日(星期X)"
@@ -30,7 +37,7 @@ SYSTEM_PROMPT = """你是电力系统日负荷预测报告解析专家。
 - 数值统一保留两位小数
 - 星期用中文：一二三四五六日
 - 日期若只有月日，结合上下文推断年份
-- cooling_value/cooling_ratio 若文中有降温负荷信息则填入，否则省略该字段
+- 秋季日报暂不展示降温负荷，忽略输入中的降温负荷信息，不输出 cooling_value/cooling_ratio 字段
 
 只输出JSON，不要任何解释。
 
@@ -40,8 +47,8 @@ SYSTEM_PROMPT = """你是电力系统日负荷预测报告解析专家。
   "report_date": "2026年6月9日",
   "dept": "用电监测分析专班",
   "forecast": [
-    {"label": "6月10日(星期二)", "value": "9.83", "cooling_value": "0.70", "cooling_ratio": "7.1%"},
-    {"label": "未来七天", "value": "10.63", "cooling_value": "1.48", "cooling_ratio": "13.9%"},
+    {"label": "6月10日(星期二)", "value": "9.83"},
+    {"label": "未来七天", "value": "10.63"},
     {"label": "预警信息", "value": "/", "is_alert": true}
   ],
   "review": [
