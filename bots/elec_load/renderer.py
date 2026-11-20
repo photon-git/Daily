@@ -1,5 +1,5 @@
 """
-迎峰度夏最大用电负荷情况 PNG 渲染器
+最大用电负荷情况 PNG 渲染器，默认冬季；原度夏实现完整保留。
 顶部 logo/标题/元信息栏完全复用日报风格（matplotlib）
 """
 import os
@@ -196,7 +196,8 @@ def _pil_text(text, w, h, fs, color_hex, bg_hex, bold=False):
     return np.array(img) / 255.0
 
 
-def render_elec_load_png(data: dict, output_path: str) -> str:
+def render_summer_elec_load_png(data: dict, output_path: str) -> str:
+    """夏季旧版渲染实现，供 season='summer' 时使用。"""
     note   = data.get("note", "")
     tbl_h  = COL_HDR_H + 7 * ROW_H
     NY     = 941 + 1146   # 说明框起始 y
@@ -454,3 +455,21 @@ def _count_note_lines(note: str, max_chars=26) -> int:
         if cur >= max_chars:
             lines += 1; cur = 0
     return lines + 1
+
+
+def render_elec_load_png(data: dict, output_path: str) -> str:
+    season = data.get('season', 'winter')
+    if season == 'summer':
+        return render_summer_elec_load_png(data, output_path)
+    if season != 'winter':
+        raise ValueError('season 只能为 winter 或 summer')
+    from .winter import render_winter_png
+    return render_winter_png(data, output_path)
+
+
+if __name__ == '__main__':
+    import argparse
+    from bots.elec_load.winter import WINTER_EXAMPLE
+    cli = argparse.ArgumentParser(description='用冬季预警日报截图数据离线测试，不调用 API')
+    cli.add_argument('--output', default=os.path.join(os.path.dirname(_ROOT), '_temp', 'elec_load_winter', 'preview.png'))
+    render_elec_load_png(WINTER_EXAMPLE, cli.parse_args().output)
