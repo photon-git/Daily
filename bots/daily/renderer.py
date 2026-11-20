@@ -1,6 +1,6 @@
 """
 日负荷预测卡片渲染器
-固定画幅 1925×2466px（标准数据：3预测行 + 1复盘行）
+标准画幅 1925×2420px（标准数据：3预测行 + 1复盘行）
 主标题：思源Heavy 90pt，中心 y=452
 """
 
@@ -48,19 +48,16 @@ TBL_W   = 1850
 TBL_X   = TBL_PAD
 RADIUS  = 40
 
-# 秋季预测表：标签 | 最大负荷；降温负荷列暂时停用。
-# 夏季恢复：取消下方夏季代码注释，停用秋季 COL2_W、FC_TH1、FC_TH2 赋值。
+# 冬季预测表：标签 | 最大负荷 | 取暖数值 | 取暖占比。
+# 夏季四列几何相同；恢复时切换下方表头及字段，保留的降温代码不删除。
 COL1_W = 460
-# COL2_W = 516
-# COL3_W = 437
-# COL4_W = 437
-COL2_W = TBL_W - COL1_W
+COL2_W = 516
+COL3_W = 437
+COL4_W = 437
 
 # 预测表行高
-# FC_TH1 = 124   # 降温负荷分组表头暂时停用
-# FC_TH2 = 108   # 夏季第二层表头
-FC_TH1  = 0
-FC_TH2  = 232    # 保留原表头总高度
+FC_TH1 = 124    # 取暖负荷分组表头
+FC_TH2 = 108    # 数值、占比列名
 FC_ROW  = 200    # 数据行
 
 # 复盘表行高
@@ -145,7 +142,7 @@ def render_daily_png(data: dict, output_path: str = None) -> str:
     n_fc = len(data.get("forecast", []))
     n_rv = len(data.get("review",   []))
 
-    # 总高度由行数决定（标准 3+1 = 2466）
+    # 总高度由行数决定（标准 3+1 = 2420）
     fc_tbl_h = FC_TH1 + FC_TH2 + n_fc * FC_ROW
     rv_tbl_h = RV_HDR + RV_CH  + n_rv * RV_ROW
     rv_tbl_y = FC_TBL_Y + fc_tbl_h + 60   # 60px 间隔
@@ -213,9 +210,8 @@ def render_daily_png(data: dict, output_path: str = None) -> str:
         rows  = data.get("forecast", [])
         tbl_h = fc_tbl_h
         x_c1  = TBL_X + COL1_W
-        # 夏季列坐标
-        # x_c2 = x_c1 + COL2_W
-        # x_c3 = x_c2 + COL3_W
+        x_c2 = x_c1 + COL2_W
+        x_c3 = x_c2 + COL3_W
 
         clip = FancyBboxPatch((TBL_X, ys), TBL_W, tbl_h,
                               boxstyle=f"round,pad=0,rounding_size={RADIUS}",
@@ -226,36 +222,41 @@ def render_daily_png(data: dict, output_path: str = None) -> str:
         # ── 表头（两层高度合计）─────────────────────────────
         TH_TOTAL = FC_TH1 + FC_TH2
 
-        # 秋季仅显示标签和最大负荷两列。
+        # 标签和最大负荷跨两层表头，取暖负荷分组跨右侧两列。
         C(ax.add_patch(mpatches.Rectangle((TBL_X, ys), COL1_W, TH_TOTAL,
                        facecolor=TEAL, edgecolor=TEAL_L, lw=0.8, zorder=3)))
         C(ax.add_patch(mpatches.Rectangle((x_c1,  ys), COL2_W, TH_TOTAL,
                        facecolor=TEAL, edgecolor=TEAL_L, lw=0.8, zorder=3)))
-        # 夏季降温负荷分组表头及第二层表头
-        # C(ax.add_patch(mpatches.Rectangle((x_c2, ys), COL3_W+COL4_W, FC_TH1,
-        #                facecolor=TEAL, edgecolor=TEAL_L, lw=0.8, zorder=3)))
-        # C(ax.add_patch(mpatches.Rectangle((x_c2, ys+FC_TH1), COL3_W, FC_TH2,
-        #                facecolor=TEAL, edgecolor=TEAL_L, lw=0.8, zorder=3)))
-        # C(ax.add_patch(mpatches.Rectangle((x_c3, ys+FC_TH1), COL4_W, FC_TH2,
-        #                facecolor=TEAL, edgecolor=TEAL_L, lw=0.8, zorder=3)))
+        # 冬夏共用的分组表头及第二层表头
+        C(ax.add_patch(mpatches.Rectangle((x_c2, ys), COL3_W+COL4_W, FC_TH1,
+                       facecolor=TEAL, edgecolor=TEAL_L, lw=0.8, zorder=3)))
+        C(ax.add_patch(mpatches.Rectangle((x_c2, ys+FC_TH1), COL3_W, FC_TH2,
+                       facecolor=TEAL, edgecolor=TEAL_L, lw=0.8, zorder=3)))
+        C(ax.add_patch(mpatches.Rectangle((x_c3, ys+FC_TH1), COL4_W, FC_TH2,
+                       facecolor=TEAL, edgecolor=TEAL_L, lw=0.8, zorder=3)))
 
         # 表头文字
         ax.text(x_c1 + COL2_W/2, ys + TH_TOTAL/2, "最大负荷（亿千瓦）",
                 ha='center', va='center', fontproperties=_fp(40,'b'),
                 color=WHITE, zorder=5, linespacing=1.5)
-        # 降温负荷分组表头及数值、占比表头暂时停用。
+        # 夏季表头保留，恢复时替换下面的冬季表头。
+        ax.text(x_c2 + (COL3_W+COL4_W)/2, ys + FC_TH1/2, "其中，取暖负荷",
+                ha='center', va='center', fontproperties=_fp(40,'b'), color=WHITE, zorder=5)
         # ax.text(x_c2 + (COL3_W+COL4_W)/2, ys + FC_TH1/2, "其中，降温负荷",
         #         ha='center', va='center', fontproperties=_fp(40,'b'), color=WHITE, zorder=5)
-        # ax.text(x_c2 + COL3_W/2 + 18, ys + FC_TH1 + FC_TH2/2, "数值（亿千瓦）",
-        #         ha='center', va='center', fontproperties=_fp(38,'b'), color=WHITE, zorder=5)
-        # ax.text(x_c3 + COL4_W/2, ys + FC_TH1 + FC_TH2/2, "占比",
-        #         ha='center', va='center', fontproperties=_fp(38,'b'), color=WHITE, zorder=5)
+        ax.text(x_c2 + COL3_W/2 + 18, ys + FC_TH1 + FC_TH2/2, "数值（亿千瓦）",
+                ha='center', va='center', fontproperties=_fp(38,'b'), color=WHITE, zorder=5)
+        ax.text(x_c3 + COL4_W/2, ys + FC_TH1 + FC_TH2/2, "占比",
+                ha='center', va='center', fontproperties=_fp(38,'b'), color=WHITE, zorder=5)
 
         # 数据行
         for i, row in enumerate(rows):
             y0       = ys + FC_TH1 + FC_TH2 + i * FC_ROW
             is_last  = (i == len(rows) - 1)
             val      = row.get("value",         "/")
+            heating = row.get("heating_value", "")
+            heating_ratio = row.get("heating_ratio", "")
+            # 夏季字段保留，不能将降温负荷当成冬季取暖负荷。
             # cooling = row.get("cooling_value", "")
             # ratio = row.get("cooling_ratio", "")
 
@@ -266,9 +267,8 @@ def render_daily_png(data: dict, output_path: str = None) -> str:
                     ha='center', va='center', fontproperties=_fp(36,'h'), color=DARK, zorder=3)
 
             if is_last:
-                # 预警信息占据右侧内容列。
-                span_w = COL2_W
-                # span_w = COL2_W + COL3_W + COL4_W  # 夏季预警合并三列
+                # 预警信息合并右侧三列（冬夏共用）。
+                span_w = COL2_W + COL3_W + COL4_W
                 C(ax.add_patch(mpatches.Rectangle((x_c1, y0), span_w, FC_ROW,
                                facecolor=CELL_W, edgecolor=BORDER, lw=0.8, zorder=2)))
                 if val and val != "/":
@@ -286,7 +286,9 @@ def render_daily_png(data: dict, output_path: str = None) -> str:
             else:
                 for xv, cw, txt, bg in [
                     (x_c1, COL2_W, val,            CELL_W),
-                    # 降温负荷数值、占比单元格暂时停用。
+                    (x_c2, COL3_W, heating or "/", CELL_B),
+                    (x_c3, COL4_W, heating_ratio or "/", CELL_B),
+                    # 夏季降温负荷单元格保留：
                     # (x_c2, COL3_W, cooling or "/", CELL_B),
                     # (x_c3, COL4_W, ratio or "/", CELL_B),
                 ]:
@@ -384,23 +386,26 @@ def render_daily_png(data: dict, output_path: str = None) -> str:
 
 if __name__ == '__main__':
     MOCK = {
-        'forecast_date': '2026年7月1日',
-        'report_date':   '2026年6月30日',
+        'forecast_date': '2026年11月20日',
+        'report_date':   '2026年11月19日',
         'dept':          '用电监测分析专班',
         'forecast': [
-            # 夏季测试数据（恢复时替换下面两行秋季数据）
+            # 夏季测试数据（恢复时替换下面两行冬季数据）
             # {'label': '7月1日(星期三)', 'value': '10.75', 'cooling_value': '1.62', 'cooling_ratio': '15.1%'},
             # {'label': '未来七天', 'value': '11.45', 'cooling_value': '2.28', 'cooling_ratio': '19.9%'},
-            {'label': '7月1日(星期三)', 'value': '10.75'},
-            {'label': '未来七天',       'value': '11.45'},
+            {'label': '11月20日(星期五)', 'value': '10.29', 'heating_value': '0.89', 'heating_ratio': '8.6%'},
+            {'label': '未来七天', 'value': '10.42', 'heating_value': '1.02', 'heating_ratio': '9.8%'},
             {'label': '预警信息',       'value': '/', 'is_alert': True},
         ],
         'review': [{
-            'date':     '6月29日(星期一)',
-            'actual':   '10.70',
-            'forecast': '10.51',
-            'accuracy': '98.2%',
+            'date':     '11月18日(星期三)',
+            'actual':   '10.22',
+            'forecast': '10.17',
+            'accuracy': '99.5%',
             'reason':   '/',
         }]
     }
-    render_daily_png(MOCK, output_path=os.path.join(OUT_DIR, "daily_test.png"))
+    import argparse
+    cli = argparse.ArgumentParser(description="使用冬季示例数据测试日报排版（不调用 API）")
+    cli.add_argument('--output', default=os.path.join(os.path.dirname(_HERE), '_temp', 'daily_winter', 'daily_test.png'))
+    render_daily_png(MOCK, output_path=cli.parse_args().output)
